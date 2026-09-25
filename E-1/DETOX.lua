@@ -11,11 +11,13 @@ local VERSION = 'E-1 Core State'
 local State = require('Core.state')
 local Input = require('Core.input')
 local Scheduler = require('Core.scheduler')
+local Wheel = require('Engine.wheel')
 
 local runtime = {
     state = nil,
     input = nil,
     scheduler = nil,
+    wheel = nil,
 
     initialized = false,
     error = nil
@@ -30,6 +32,9 @@ local function initialize()
 
     runtime.scheduler =
         Scheduler.create()
+
+    runtime.wheel =
+        Wheel.create()
 
     runtime.initialized =
         true
@@ -49,7 +54,9 @@ local function phaseSnapshot()
         runtime.input
 
     local nextState =
-        State.getNext(runtime.state)
+        State.getNext(
+            runtime.state
+        )
 
     nextState.vehicle.valid =
         input.vehicle.valid
@@ -88,6 +95,7 @@ local function phaseSnapshot()
             nextState.wheels[name]
 
         if source then
+
             wheel.valid =
                 source.valid
 
@@ -112,10 +120,30 @@ local function phaseSnapshot()
 end
 
 local function phaseKinematics()
+
+    local nextState =
+        State.getNext(
+            runtime.state
+        )
+
+    Wheel.updateKinematics(
+        nextState
+    )
+
     return true
 end
 
 local function phaseSlip()
+
+    local nextState =
+        State.getNext(
+            runtime.state
+        )
+
+    Wheel.updateSlip(
+        nextState
+    )
+
     return true
 end
 
@@ -140,6 +168,17 @@ local function phaseSuspension()
 end
 
 local function phaseWheel()
+
+    local nextState =
+        State.getNext(
+            runtime.state
+        )
+
+    Wheel.updateDynamics(
+        nextState,
+        runtime.scheduler.dt
+    )
+
     return true
 end
 
@@ -156,6 +195,7 @@ local function phaseValidation()
 end
 
 local function phaseCommit()
+
     return State.commit(
         runtime.state
     )
@@ -166,6 +206,7 @@ local function phaseOutput()
 end
 
 local function update(dt)
+
     if not runtime.initialized then
         initialize()
     end
@@ -249,6 +290,7 @@ local function update(dt)
 end
 
 local function windowMain()
+
     if not runtime.initialized then
         initialize()
     end
@@ -256,6 +298,11 @@ local function windowMain()
     local status =
         Scheduler.getStatus(
             runtime
+        )
+
+    local current =
+        State.getCurrent(
+            runtime.state
         )
 
     ui.text('DETOX')
@@ -290,17 +337,65 @@ local function windowMain()
     )
 
     ui.text(
-        'Coupled Iterations: ' ..
-        tostring(status.coupledIterations)
+        'Speed: ' ..
+        string.format(
+            '%.2f km/h',
+            current.vehicle.speed
+        )
+    )
+
+    ui.text(
+        'RPM: ' ..
+        string.format(
+            '%.0f',
+            current.vehicle.rpm
+        )
+    )
+
+    ui.text(
+        'FL Slip: ' ..
+        string.format(
+            '%.4f',
+            current.wheels.FL.slipRatio
+        )
+    )
+
+    ui.text(
+        'FR Slip: ' ..
+        string.format(
+            '%.4f',
+            current.wheels.FR.slipRatio
+        )
+    )
+
+    ui.text(
+        'RL Slip: ' ..
+        string.format(
+            '%.4f',
+            current.wheels.RL.slipRatio
+        )
+    )
+
+    ui.text(
+        'RR Slip: ' ..
+        string.format(
+            '%.4f',
+            current.wheels.RR.slipRatio
+        )
     )
 
     if status.error then
+
         ui.text('ERROR')
+
         ui.text(
             tostring(status.error)
         )
+
     else
+
         ui.text('STATUS: READY')
+
     end
 end
 
@@ -314,5 +409,7 @@ script.update =
 script.windowMain =
     windowMain
 
+script.windowMainMenu =
+    windowMainMenu
 script.windowMainMenu =
     windowMainMenu
