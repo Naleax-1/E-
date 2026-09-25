@@ -1,365 +1,271 @@
---============================================================
--- DETOX - Core State
--- E-1 Core State Implementation
---============================================================
+-- DETOX
+-- E-7 Core State
 
 local State = {}
 
-State.VERSION = 'DETOX.State.1'
+State.VERSION = "E-7"
 
-State.WHEEL_NAMES = {
-    'FL',
-    'FR',
-    'RL',
-    'RR'
+local WHEEL_NAMES = {
+  "FL",
+  "FR",
+  "RL",
+  "RR"
 }
 
-local function vec3(x, y, z)
-    return {
-        x = x or 0,
-        y = y or 0,
-        z = z or 0
-    }
+local function vec3()
+  return {
+    x = 0.0,
+    y = 0.0,
+    z = 0.0
+  }
+end
+
+local function zeroTorque()
+  return {
+    drive = 0.0,
+    brake = 0.0,
+    tire = 0.0,
+    loss = 0.0
+  }
 end
 
 local function makeWheel()
-    return {
-        valid = false,
+  return {
+    position = vec3(),
 
-        position = vec3(),
+    radius = 0.33,
+    rotation = 0.0,
+    omega = 0.0,
+    angularAcceleration = 0.0,
 
-        radius = 0,
-        rotation = 0,
-        omega = 0,
-        angularAcceleration = 0,
+    torque = zeroTorque(),
 
-        torque = {
-            drive = 0,
-            brake = 0,
-            tire = 0,
-            loss = 0
-        },
+    contactVelocity = vec3(),
 
-        contactVelocity = vec3(),
+    longitudinalVelocity = 0.0,
+    lateralVelocity = 0.0,
 
-        longitudinalVelocity = 0,
-        lateralVelocity = 0,
+    slipRatio = 0.0,
+    slipAngle = 0.0,
 
-        slipRatio = 0,
-        slipAngle = 0,
+    load = 0.0,
 
-        load = 0,
+    force = {
+      longitudinal = 0.0,
+      lateral = 0.0,
+      vertical = 0.0
+    },
 
-        force = vec3(),
+    suspensionTravel = 0.0,
+    suspensionVelocity = 0.0,
 
-        suspensionTravel = 0,
-        suspensionVelocity = 0,
-
-        suspensionForce = 0,
-        springForce = 0,
-        damperForce = 0,
-
-        contact = false
-    }
+    contact = false,
+    valid = false
+  }
 end
 
 local function makeTire()
-    return {
-        valid = false,
+  return {
+    load = 0.0,
 
-        load = 0,
+    slipRatio = 0.0,
+    slipAngle = 0.0,
+    combinedSlip = 0.0,
 
-        slipRatio = 0,
-        slipAngle = 0,
-        combinedSlip = 0,
+    surfaceTemperature = 30.0,
+    carcassTemperature = 30.0,
 
-        surfaceTemperature = 0,
-        carcassTemperature = 0,
+    pressure = 0.0,
+    wear = 0.0,
 
-        pressure = 0,
-        wear = 0,
+    carcassDeflection = 0.0,
+    carcassVelocity = 0.0,
+    carcassEnergy = 0.0,
+    carcassHysteresis = 0.0,
 
-        carcassDeflection = 0,
-        carcassVelocity = 0,
-        carcassEnergy = 0,
+    heatInput = 0.0,
+    cooling = 0.0,
+    slipEnergy = 0.0,
 
-        force = {
-            longitudinal = 0,
-            lateral = 0,
-            vertical = 0
-        },
+    thermalGrip = 1.0,
 
-        reactionTorque = 0
-    }
+    force = {
+      longitudinal = 0.0,
+      lateral = 0.0,
+      vertical = 0.0
+    },
+
+    reactionTorque = 0.0,
+
+    valid = false
+  }
 end
 
 local function makeVehicle()
-    return {
-        valid = false,
+  return {
+    valid = false,
 
-        mass = 0,
+    mass = 1300.0,
 
-        dt = 0,
-        time = 0,
+    dt = 1.0 / 333.0,
+    time = 0.0,
 
-        speed = 0,
+    speed = 0.0,
 
-        velocity = vec3(),
-        acceleration = vec3(),
+    velocity = vec3(),
+    acceleration = vec3(),
+    position = vec3(),
 
-        position = vec3(),
-
-        heading = 0,
-
-        steer = 0,
-        gas = 0,
-        brake = 0,
-        clutch = 0,
-        handbrake = 0,
-
-        rpm = 0,
-        gear = 0
-    }
+    heading = 0.0
+  }
 end
 
 local function makeBody()
-    return {
-        valid = false,
+  return {
+    force = vec3(),
+    moment = vec3(),
 
-        force = vec3(),
-        moment = vec3(),
+    acceleration = vec3(),
+    angularAcceleration = vec3(),
 
-        acceleration = vec3(),
-        angularAcceleration = vec3(),
+    velocity = vec3(),
+    angularVelocity = vec3(),
 
-        velocity = vec3(),
-        angularVelocity = vec3(),
+    attitude = {
+      roll = 0.0,
+      pitch = 0.0,
+      yaw = 0.0
+    },
 
-        attitude = {
-            roll = 0,
-            pitch = 0,
-            yaw = 0
-        }
-    }
+    valid = false
+  }
 end
 
 local function makePowertrain()
-    return {
-        valid = false,
+  return {
+    engine = {
+      omega = 0.0,
+      rpm = 0.0,
+      torque = 0.0,
+      temperature = 0.0
+    },
 
-        engine = {
-            omega = 0,
-            rpm = 0,
-            torque = 0,
-            temperature = 0
-        },
+    clutch = {
+      inputOmega = 0.0,
+      outputOmega = 0.0,
+      slip = 0.0,
+      torque = 0.0
+    },
 
-        clutch = {
-            inputOmega = 0,
-            outputOmega = 0,
-            slip = 0,
-            torque = 0
-        },
+    gearbox = {
+      gear = 0,
+      ratio = 0.0,
+      omega = 0.0
+    },
 
-        gearbox = {
-            gear = 0,
-            ratio = 0,
-            omega = 0
-        },
+    shaft = {
+      twist = 0.0,
+      omega = 0.0,
+      torque = 0.0
+    },
 
-        shaft = {
-            twist = 0,
-            omega = 0,
-            torque = 0
-        },
-
-        differential = {
-            lockRatio = 0,
-            lockTorque = 0,
-            leftTorque = 0,
-            rightTorque = 0
-        }
+    differential = {
+      lockRatio = 0.0,
+      lockTorque = 0.0,
+      leftTorque = 0.0,
+      rightTorque = 0.0,
+      reactionTorque = 0.0
     }
+  }
 end
 
 local function makeSnapshot()
-    local snapshot = {
-        vehicle = makeVehicle(),
-        body = makeBody(),
+  local snapshot = {
+    vehicle = makeVehicle(),
+    body = makeBody(),
 
-        wheels = {},
-        tires = {},
+    wheels = {},
+    tires = {},
 
-        powertrain =
-            makePowertrain(),
+    powertrain = makePowertrain(),
 
-        diagnostics = {
-            valid = false,
-
-            nanCount = 0,
-            infCount = 0,
-
-            errorCount = 0
-        }
+    diagnostics = {
+      valid = true,
+      errors = 0,
+      lastError = ""
     }
+  }
 
-    for _, name in
-        ipairs(State.WHEEL_NAMES) do
+  for _, name in ipairs(WHEEL_NAMES) do
+    snapshot.wheels[name] = makeWheel()
+    snapshot.tires[name] = makeTire()
+  end
 
-        snapshot.wheels[name] =
-            makeWheel()
-
-        snapshot.tires[name] =
-            makeTire()
-    end
-
-    return snapshot
+  return snapshot
 end
 
-local function makeState()
-    return {
-        schema =
-            State.VERSION,
+local function deepCopy(value)
+  if type(value) ~= "table" then
+    return value
+  end
 
-        frame = 0,
+  local result = {}
 
-        valid = false,
+  for key, child in pairs(value) do
+    result[key] = deepCopy(child)
+  end
 
-        previous =
-            makeSnapshot(),
-
-        current =
-            makeSnapshot(),
-
-        next =
-            makeSnapshot()
-    }
+  return result
 end
 
 function State.create()
-    return makeState()
+  local state = {
+    schema = "DETOX.State.1",
+
+    frame = 0,
+    valid = false,
+
+    previous = makeSnapshot(),
+    current = makeSnapshot(),
+    next = makeSnapshot()
+  }
+
+  return state
 end
 
 function State.reset(state)
-    local fresh =
-        makeState()
+  state.frame = 0
+  state.valid = false
 
-    state.schema =
-        fresh.schema
-
-    state.frame =
-        fresh.frame
-
-    state.valid =
-        fresh.valid
-
-    state.previous =
-        fresh.previous
-
-    state.current =
-        fresh.current
-
-    state.next =
-        fresh.next
+  state.previous = makeSnapshot()
+  state.current = makeSnapshot()
+  state.next = makeSnapshot()
 end
 
-function State.copySnapshot(
-    dst,
-    src
-)
-    for key, value in
-        pairs(src) do
+function State.beginTick(state)
+  state.previous = deepCopy(state.current)
+  state.next = deepCopy(state.current)
 
-        if type(value) ==
-            'table' then
-
-            if type(dst[key]) ~=
-                'table' then
-
-                dst[key] = {}
-            end
-
-            State.copySnapshot(
-                dst[key],
-                value
-            )
-
-        else
-
-            dst[key] =
-                value
-
-        end
-    end
-end
-
-function State.beginTick(
-    state,
-    dt
-)
-    state.frame =
-        state.frame + 1
-
-    state.previous =
-        state.current
-
-    state.next =
-        makeSnapshot()
-
-    State.copySnapshot(
-        state.next,
-        state.current
-    )
-
-    state.next.vehicle.dt =
-        dt or 0
-
-    state.next.vehicle.time =
-        state.current.vehicle.time +
-        (dt or 0)
-
-    state.valid = false
+  state.frame =
+      state.frame + 1
 end
 
 function State.commit(state)
-    local diagnostics =
-        state.next.diagnostics
+  local oldCurrent = state.current
 
-    if diagnostics.nanCount > 0 then
-        state.valid = false
-        return false
-    end
+  state.current = state.next
+  state.next = oldCurrent
 
-    if diagnostics.infCount > 0 then
-        state.valid = false
-        return false
-    end
-
-    state.current =
-        state.next
-
-    state.next =
-        state.previous
-
-    state.valid = true
-
-    return true
-end
-
-function State.getCurrent(state)
-    return state.current
-end
-
-function State.getPrevious(state)
-    return state.previous
-end
-
-function State.getNext(state)
-    return state.next
+  state.valid =
+      state.current.diagnostics.valid
 end
 
 function State.getWheelNames()
-    return State.WHEEL_NAMES
+  return WHEEL_NAMES
+end
+
+function State.copySnapshot(snapshot)
+  return deepCopy(snapshot)
 end
 
 return State
