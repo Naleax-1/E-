@@ -1,6 +1,7 @@
 local Scheduler = {}
 
-Scheduler.VERSION = 'E-2'
+Scheduler.VERSION = 'E-3'
+
 Scheduler.MAX_COUPLED_ITERATIONS = 3
 
 Scheduler.PHASES = {
@@ -21,30 +22,22 @@ Scheduler.PHASES = {
     'Output'
 }
 
-local function safeCall(name, fn, ...)
+local function safeCall(name, fn, runtime)
     if type(fn) ~= 'function' then
         return true
     end
 
-    local ok, result = pcall(fn, ...)
+    local ok, result =
+        pcall(fn, runtime)
+
     if not ok then
-        return false, name .. ': ' .. tostring(result)
+        return false,
+            name .. ': ' .. tostring(result)
     end
 
-    return true, result
-end
-
-local function runPhase(runtime, name, fn)
-    runtime.scheduler.currentPhase = name
-    runtime.scheduler.phaseIndex =
-        runtime.scheduler.phaseIndex + 1
-
-    local ok, err = safeCall(name, fn, runtime)
-
-    if not ok then
-        runtime.scheduler.error = err
-        runtime.scheduler.failedPhase = name
-        return false
+    if result == false then
+        return false,
+            name .. ': phase returned false'
     end
 
     return true
@@ -76,18 +69,18 @@ function Scheduler.create()
     }
 end
 
-function Scheduler.reset(runtime)
-    runtime.scheduler = Scheduler.create()
-end
-
 function Scheduler.beginTick(runtime, dt)
-    local scheduler = runtime.scheduler
+    local scheduler =
+        runtime.scheduler
 
-    scheduler.tick = scheduler.tick + 1
+    scheduler.tick =
+        scheduler.tick + 1
+
     scheduler.dt = dt or 0
 
     scheduler.phaseIndex = 0
     scheduler.currentPhase = 'Begin'
+    scheduler.completedPhase = 'None'
 
     scheduler.failedPhase = nil
     scheduler.error = nil
@@ -100,48 +93,66 @@ function Scheduler.beginTick(runtime, dt)
         scheduler.statistics.totalTicks + 1
 end
 
-function Scheduler.execute(runtime, phases)
-    local scheduler = runtime.scheduler
+function Scheduler.runPhase(
+    runtime,
+    name,
+    fn
+)
+    local scheduler =
+        runtime.scheduler
 
-    for _, phase in ipairs(Scheduler.PHASES) do
-        local fn = phases and phases[phase]
+    scheduler.currentPhase = name
 
-        if not runPhase(runtime, phase, fn) then
-            scheduler.running = false
-            scheduler.statistics.failedTicks =
-                scheduler.statistics.failedTicks + 1
+    scheduler.phaseIndex =
+        scheduler.phaseIndex + 1
 
-            return false
-        end
+    local ok, err =
+        safeCall(name, fn, runtime)
 
-        scheduler.completedPhase = phase
+    if not ok then
+        scheduler.error = err
+        scheduler.failedPhase = name
+
+        return false
     end
 
-    scheduler.running = false
+    scheduler.completedPhase = name
 
     return true
 end
 
-function Scheduler.runCoupledIteration(runtime, fn)
-    local scheduler = runtime.scheduler
+function Scheduler.runCoupledIteration(
+    runtime,
+    fn
+)
+    local scheduler =
+        runtime.scheduler
 
     if type(fn) ~= 'function' then
         return true
     end
 
-    for iteration = 1, Scheduler.MAX_COUPLED_ITERATIONS do
-        scheduler.coupledIterations = iteration
+    for iteration = 1,
+        Scheduler.MAX_COUPLED_ITERATIONS do
 
-        local ok, err = safeCall(
-            'CoupledIteration',
-            fn,
-            runtime,
+        scheduler.coupledIterations =
             iteration
-        )
+
+        local ok, err =
+            pcall(
+                fn,
+                runtime,
+                iteration
+            )
 
         if not ok then
-            scheduler.error = err
-            scheduler.failedPhase = 'CoupledIteration'
+            scheduler.error =
+                'CoupledIteration: ' ..
+                tostring(err)
+
+            scheduler.failedPhase =
+                'CoupledIteration'
+
             return false
         end
     end
@@ -149,8 +160,41 @@ function Scheduler.runCoupledIteration(runtime, fn)
     return true
 end
 
+function Scheduler.execute(
+    runtime,
+    phases
+)
+    for _, phase in
+        ipairs(Scheduler.PHASES) do
+
+        local fn =
+            phases and phases[phase]
+
+        if not Scheduler.runPhase(
+            runtime,
+            phase,
+            fn
+        ) then
+
+            runtime.scheduler.running =
+                false
+
+            runtime.scheduler.statistics.failedTicks =
+                runtime.scheduler.statistics.failedTicks + 1
+
+            return false
+        end
+    end
+
+    runtime.scheduler.running =
+        false
+
+    return true
+end
+
 function Scheduler.endTick(runtime)
-    local scheduler = runtime.scheduler
+    local scheduler =
+        runtime.scheduler
 
     scheduler.running = false
     scheduler.currentPhase = 'Idle'
@@ -162,20 +206,30 @@ function Scheduler.endTick(runtime)
 end
 
 function Scheduler.getStatus(runtime)
-    local scheduler = runtime.scheduler
+    local scheduler =
+        runtime.scheduler
 
     return {
         version = scheduler.version,
+
         tick = scheduler.tick,
 
         running = scheduler.running,
 
-        phaseIndex = scheduler.phaseIndex,
-        currentPhase = scheduler.currentPhase,
-        completedPhase = scheduler.completedPhase,
+        phaseIndex =
+            scheduler.phaseIndex,
 
-        failedPhase = scheduler.failedPhase,
-        error = scheduler.error,
+        currentPhase =
+            scheduler.currentPhase,
+
+        completedPhase =
+            scheduler.completedPhase,
+
+        failedPhase =
+            scheduler.failedPhase,
+
+        error =
+            scheduler.error,
 
         coupledIterations =
             scheduler.coupledIterations,
