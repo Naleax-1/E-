@@ -55,6 +55,10 @@ local function makeWheel()
         suspensionTravel = 0,
         suspensionVelocity = 0,
 
+        suspensionForce = 0,
+        springForce = 0,
+        damperForce = 0,
+
         contact = false
     }
 end
@@ -186,7 +190,8 @@ local function makeSnapshot()
         wheels = {},
         tires = {},
 
-        powertrain = makePowertrain(),
+        powertrain =
+            makePowertrain(),
 
         diagnostics = {
             valid = false,
@@ -198,9 +203,14 @@ local function makeSnapshot()
         }
     }
 
-    for _, name in ipairs(State.WHEEL_NAMES) do
-        snapshot.wheels[name] = makeWheel()
-        snapshot.tires[name] = makeTire()
+    for _, name in
+        ipairs(State.WHEEL_NAMES) do
+
+        snapshot.wheels[name] =
+            makeWheel()
+
+        snapshot.tires[name] =
+            makeTire()
     end
 
     return snapshot
@@ -208,15 +218,21 @@ end
 
 local function makeState()
     return {
-        schema = State.VERSION,
+        schema =
+            State.VERSION,
 
         frame = 0,
 
         valid = false,
 
-        previous = makeSnapshot(),
-        current = makeSnapshot(),
-        next = makeSnapshot()
+        previous =
+            makeSnapshot(),
+
+        current =
+            makeSnapshot(),
+
+        next =
+            makeSnapshot()
     }
 end
 
@@ -225,39 +241,70 @@ function State.create()
 end
 
 function State.reset(state)
-    local fresh = makeState()
+    local fresh =
+        makeState()
 
-    state.schema = fresh.schema
-    state.frame = fresh.frame
-    state.valid = fresh.valid
+    state.schema =
+        fresh.schema
 
-    state.previous = fresh.previous
-    state.current = fresh.current
-    state.next = fresh.next
+    state.frame =
+        fresh.frame
+
+    state.valid =
+        fresh.valid
+
+    state.previous =
+        fresh.previous
+
+    state.current =
+        fresh.current
+
+    state.next =
+        fresh.next
 end
 
-function State.copySnapshot(dst, src)
-    for key, value in pairs(src) do
-        if type(value) == 'table' then
-            if type(dst[key]) ~= 'table' then
+function State.copySnapshot(
+    dst,
+    src
+)
+    for key, value in
+        pairs(src) do
+
+        if type(value) ==
+            'table' then
+
+            if type(dst[key]) ~=
+                'table' then
+
                 dst[key] = {}
             end
 
-            State.copySnapshot(dst[key], value)
+            State.copySnapshot(
+                dst[key],
+                value
+            )
+
         else
-            dst[key] = value
+
+            dst[key] =
+                value
+
         end
     end
 end
 
-function State.beginTick(state, dt)
+function State.beginTick(
+    state,
+    dt
+)
     state.frame =
         state.frame + 1
 
-    state.previous,
-    state.current =
-        state.current,
-        state.next
+    state.previous =
+        state.current
+
+    state.next =
+        makeSnapshot()
 
     State.copySnapshot(
         state.next,
@@ -288,10 +335,11 @@ function State.commit(state)
         return false
     end
 
-    state.current,
+    state.current =
+        state.next
+
     state.next =
-        state.next,
-        state.current
+        state.previous
 
     state.valid = true
 
