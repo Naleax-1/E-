@@ -11,13 +11,25 @@ local VERSION = 'E-1 Core State'
 local State = require('Core.state')
 local Input = require('Core.input')
 local Scheduler = require('Core.scheduler')
+
 local Wheel = require('Engine.wheel')
+local Tire = require('Engine.tire')
+local Suspension = require('Engine.suspension')
+
+local TireModel = require('Model.tire_model')
+local LoadModel = require('Model.load_model')
 
 local runtime = {
     state = nil,
     input = nil,
     scheduler = nil,
+
     wheel = nil,
+    tire = nil,
+    suspension = nil,
+
+    tireModel = nil,
+    loadModel = nil,
 
     initialized = false,
     error = nil
@@ -35,6 +47,20 @@ local function initialize()
 
     runtime.wheel =
         Wheel.create()
+
+    runtime.tireModel =
+        TireModel.create()
+
+    runtime.loadModel =
+        LoadModel.create()
+
+    runtime.tire =
+        Tire.create(
+            runtime.tireModel
+        )
+
+    runtime.suspension =
+        Suspension.create()
 
     runtime.initialized =
         true
@@ -95,7 +121,6 @@ local function phaseSnapshot()
             nextState.wheels[name]
 
         if source then
-
             wheel.valid =
                 source.valid
 
@@ -120,7 +145,6 @@ local function phaseSnapshot()
 end
 
 local function phaseKinematics()
-
     local nextState =
         State.getNext(
             runtime.state
@@ -134,7 +158,6 @@ local function phaseKinematics()
 end
 
 local function phaseSlip()
-
     local nextState =
         State.getNext(
             runtime.state
@@ -152,6 +175,16 @@ local function phaseThermalCarcass()
 end
 
 local function phaseTire()
+    local nextState =
+        State.getNext(
+            runtime.state
+        )
+
+    Tire.update(
+        runtime.tire,
+        nextState
+    )
+
     return true
 end
 
@@ -164,11 +197,20 @@ local function phaseDifferential()
 end
 
 local function phaseSuspension()
+    local nextState =
+        State.getNext(
+            runtime.state
+        )
+
+    Suspension.update(
+        runtime.suspension,
+        nextState
+    )
+
     return true
 end
 
 local function phaseWheel()
-
     local nextState =
         State.getNext(
             runtime.state
@@ -195,7 +237,6 @@ local function phaseValidation()
 end
 
 local function phaseCommit()
-
     return State.commit(
         runtime.state
     )
@@ -206,7 +247,6 @@ local function phaseOutput()
 end
 
 local function update(dt)
-
     if not runtime.initialized then
         initialize()
     end
@@ -290,7 +330,6 @@ local function update(dt)
 end
 
 local function windowMain()
-
     if not runtime.initialized then
         initialize()
     end
@@ -306,6 +345,7 @@ local function windowMain()
         )
 
     ui.text('DETOX')
+
     ui.text(
         'Scheduler: ' ..
         tostring(status.version)
@@ -353,49 +393,61 @@ local function windowMain()
     )
 
     ui.text(
-        'FL Slip: ' ..
+        'FL Load: ' ..
         string.format(
-            '%.4f',
-            current.wheels.FL.slipRatio
+            '%.1f',
+            current.wheels.FL.load
         )
     )
 
     ui.text(
-        'FR Slip: ' ..
+        'FR Load: ' ..
         string.format(
-            '%.4f',
-            current.wheels.FR.slipRatio
+            '%.1f',
+            current.wheels.FR.load
         )
     )
 
     ui.text(
-        'RL Slip: ' ..
+        'RL Load: ' ..
         string.format(
-            '%.4f',
-            current.wheels.RL.slipRatio
+            '%.1f',
+            current.wheels.RL.load
         )
     )
 
     ui.text(
-        'RR Slip: ' ..
+        'RR Load: ' ..
         string.format(
-            '%.4f',
-            current.wheels.RR.slipRatio
+            '%.1f',
+            current.wheels.RR.load
+        )
+    )
+
+    ui.text(
+        'FL Fx: ' ..
+        string.format(
+            '%.2f',
+            current.tires.FL.force.longitudinal
+        )
+    )
+
+    ui.text(
+        'FL Fy: ' ..
+        string.format(
+            '%.2f',
+            current.tires.FL.force.lateral
         )
     )
 
     if status.error then
-
         ui.text('ERROR')
 
         ui.text(
             tostring(status.error)
         )
-
     else
-
         ui.text('STATUS: READY')
-
     end
 end
 
@@ -409,7 +461,5 @@ script.update =
 script.windowMain =
     windowMain
 
-script.windowMainMenu =
-    windowMainMenu
 script.windowMainMenu =
     windowMainMenu
