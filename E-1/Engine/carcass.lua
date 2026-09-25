@@ -42,7 +42,6 @@ function Carcass.update(state, model)
     local tire = state.next.tires[name]
 
     if wheel and tire then
-
       local carcassState = {
         deflection = tire.carcassDeflection or 0.0,
         velocity = tire.carcassVelocity or 0.0,
@@ -50,7 +49,7 @@ function Carcass.update(state, model)
         hysteresis = tire.carcassHysteresis or 0.0
       }
 
-      CarcassModel.solve(
+      model.solve(
         model,
         carcassState,
         {
@@ -59,21 +58,18 @@ function Carcass.update(state, model)
         }
       )
 
-      tire.carcassDeflection =
-          carcassState.deflection
-
-      tire.carcassVelocity =
-          carcassState.velocity
-
-      tire.carcassEnergy =
-          carcassState.energy
-
-      tire.carcassHysteresis =
-          carcassState.hysteresis
-
+      tire.carcassDeflection = carcassState.deflection
+      tire.carcassVelocity = carcassState.velocity
+      tire.carcassEnergy = carcassState.energy
+      tire.carcassHysteresis = carcassState.hysteresis
       tire.valid = true
     end
   end
+
+  return true
+end
+
+return Carcass
 
   Carcass.valid = true
 end
