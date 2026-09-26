@@ -7,28 +7,59 @@
 
 local APP_NAME = 'DETOX'
 local VERSION = 'E-1 Core State'
-
 -- DETOX
--- E-7 Main Runtime
+-- E-8 Main Runtime
 
-local State = require("Core.state")
-local Input = require("Core.input")
-local Scheduler = require("Core.scheduler")
+local State =
+    require("Core.state")
 
-local Wheel = require("Engine.wheel")
-local Tire = require("Engine.tire")
-local Suspension = require("Engine.suspension")
+local Input =
+    require("Core.input")
 
-local Powertrain = require("Engine.powertrain")
-local Differential = require("Engine.differential")
+local Scheduler =
+    require("Core.scheduler")
 
-local Thermal = require("Engine.thermal")
-local Carcass = require("Engine.carcass")
 
-local TireModel = require("Model.tire_model")
-local LoadModel = require("Model.load_model")
-local ThermalModel = require("Model.thermal_model")
-local CarcassModel = require("Model.carcass_model")
+local Wheel =
+    require("Engine.wheel")
+
+local Tire =
+    require("Engine.tire")
+
+local Suspension =
+    require("Engine.suspension")
+
+local Powertrain =
+    require("Engine.powertrain")
+
+local Differential =
+    require("Engine.differential")
+
+local Thermal =
+    require("Engine.thermal")
+
+local Carcass =
+    require("Engine.carcass")
+
+local Body =
+    require("Engine.body")
+
+
+local TireModel =
+    require("Model.tire_model")
+
+local LoadModel =
+    require("Model.load_model")
+
+local ThermalModel =
+    require("Model.thermal_model")
+
+local CarcassModel =
+    require("Model.carcass_model")
+
+local BodyModel =
+    require("Model.body_model")
+
 
 local PowertrainDefinition =
     require("Definition.powertrain")
@@ -48,6 +79,7 @@ local app = {
   loadModel = nil,
   thermalModel = nil,
   carcassModel = nil,
+  bodyModel = nil,
 
   powertrainDefinition = nil,
   differentialDefinition = nil,
@@ -62,27 +94,21 @@ local app = {
   thermal = nil,
   carcass = nil,
 
+  body = nil,
+
   error = nil
 }
 
 
-local function safeRequire(moduleName)
-  local ok, result =
-      pcall(require, moduleName)
-
-  if not ok then
-    return nil, tostring(result)
-  end
-
-  return result, nil
-end
-
-
 local function initialize()
-  app.state = State.create()
+  app.state =
+      State.create()
 
-  app.input = Input.create()
-  app.scheduler = Scheduler.create()
+  app.input =
+      Input.create()
+
+  app.scheduler =
+      Scheduler.create()
 
   app.tireModel =
       TireModel.create()
@@ -96,20 +122,29 @@ local function initialize()
   app.carcassModel =
       CarcassModel.create()
 
+  app.bodyModel =
+      BodyModel.create()
+
+
   app.powertrainDefinition =
       PowertrainDefinition.create()
 
   app.differentialDefinition =
       DifferentialDefinition.create()
 
+
   app.wheel =
       Wheel.create()
 
   app.tire =
-      Tire.create(app.tireModel)
+      Tire.create(
+        app.tireModel
+      )
 
   app.suspension =
-      Suspension.create(app.loadModel)
+      Suspension.create(
+        app.loadModel
+      )
 
   app.powertrain =
       Powertrain.create(
@@ -131,6 +166,12 @@ local function initialize()
         app.carcassModel
       )
 
+  app.body =
+      Body.create(
+        app.bodyModel
+      )
+
+
   app.initialized = true
 end
 
@@ -149,24 +190,16 @@ end
 
 
 local function phaseKinematics()
-  if app.wheel
-      and app.wheel.updateKinematics then
-
-    app.wheel.updateKinematics(
-      app.state
-    )
-  end
+  Wheel.updateKinematics(
+    app.state
+  )
 end
 
 
 local function phaseSlip()
-  if app.wheel
-      and app.wheel.updateSlip then
-
-    app.wheel.updateSlip(
-      app.state
-    )
-  end
+  Wheel.updateSlip(
+    app.state
+  )
 end
 
 
@@ -200,19 +233,20 @@ end
 
 
 local function phaseDifferential()
-  local shaftTorque =
-      app.state.next.powertrain.shaft.torque
+  local shaft =
+      app.state.next.powertrain.shaft
 
-  local ratio =
-      app.state.next.powertrain.gearbox.ratio
+  local gearbox =
+      app.state.next.powertrain.gearbox
 
   local finalDrive =
       app.powertrainDefinition
-          .gearbox.finalDrive
+        .gearbox.finalDrive
 
-  app.state.next.powertrain.differential.inputTorque =
-      shaftTorque
-      * ratio
+  app.state.next.powertrain
+      .differential.inputTorque =
+      shaft.torque
+      * gearbox.ratio
       * finalDrive
 
   Differential.update(
@@ -231,30 +265,25 @@ end
 
 
 local function phaseWheel()
-  if app.wheel
-      and app.wheel.update then
-
-    app.wheel.update(
-      app.state
-    )
-  end
+  Wheel.update(
+    app.state
+  )
 end
 
 
 local function phaseCoupledIteration()
-  -- E-7:
-  -- Full wheel/tire/body coupled solving
-  -- is intentionally reserved for E-9.
+  -- Full coupled solver is E-9.
   --
-  -- Current path:
-  -- State -> Tire -> Thermal/Carcass
-  -- -> next Tick feedback.
+  -- E-8 intentionally performs
+  -- one directional body integration.
 end
 
 
 local function phaseBody()
-  -- Body Dynamics is introduced
-  -- in the later integration phase.
+  Body.update(
+    app.state,
+    app.bodyModel
+  )
 end
 
 
@@ -266,6 +295,21 @@ local function phaseValidation()
   diagnostics.errors = 0
   diagnostics.lastError = ""
 
+
+  local body =
+      app.state.next.body
+
+  if not body.valid then
+    diagnostics.valid = false
+
+    diagnostics.errors =
+        diagnostics.errors + 1
+
+    diagnostics.lastError =
+        "Body state invalid"
+  end
+
+
   for _, name in ipairs(
       State.getWheelNames()) do
 
@@ -275,15 +319,25 @@ local function phaseValidation()
     local tire =
         app.state.next.tires[name]
 
-    if not wheel
-        or not tire then
-
+    if not wheel then
       diagnostics.valid = false
+
       diagnostics.errors =
           diagnostics.errors + 1
 
       diagnostics.lastError =
-          "Missing wheel/tire state: "
+          "Missing wheel state: "
+          .. name
+    end
+
+    if not tire then
+      diagnostics.valid = false
+
+      diagnostics.errors =
+          diagnostics.errors + 1
+
+      diagnostics.lastError =
+          "Missing tire state: "
           .. name
     end
   end
@@ -296,7 +350,7 @@ end
 
 
 local function phaseOutput()
-  -- Output boundary remains read-only.
+  -- Output remains read-only.
 end
 
 
@@ -309,11 +363,19 @@ function script.update(dt)
     return
   end
 
+
+  if dt and dt > 0 then
+    app.state.next.vehicle.dt =
+        dt
+  end
+
+
   local ok, err =
       pcall(function()
 
         phaseInput()
         phaseSnapshot()
+
         phaseKinematics()
         phaseSlip()
 
@@ -331,21 +393,27 @@ function script.update(dt)
 
         phaseValidation()
         phaseCommit()
+
         phaseOutput()
       end)
 
+
   if not ok then
-    app.error = tostring(err)
+    app.error =
+        tostring(err)
 
     if app.state
         and app.state.current
         and app.state.current.diagnostics then
 
-      app.state.current.diagnostics.valid = false
+      app.state.current.diagnostics.valid =
+          false
 
       app.state.current.diagnostics.errors =
-          (app.state.current.diagnostics.errors or 0)
-          + 1
+          (
+            app.state.current.diagnostics.errors
+            or 0
+          ) + 1
 
       app.state.current.diagnostics.lastError =
           app.error
@@ -356,9 +424,13 @@ end
 
 function script.windowMain()
   if not app.initialized then
-    ui.text("DETOX E-7: INITIALIZING")
+    ui.text(
+      "DETOX E-8: INITIALIZING"
+    )
+
     return
   end
+
 
   local state =
       app.state.current
@@ -366,11 +438,16 @@ function script.windowMain()
   local vehicle =
       state.vehicle
 
+  local body =
+      state.body
+
   local powertrain =
       state.powertrain
 
-  ui.text("DETOX E-7")
+
+  ui.text("DETOX E-8")
   ui.separator()
+
 
   ui.text(
     string.format(
@@ -381,10 +458,50 @@ function script.windowMain()
 
   ui.text(
     string.format(
-      "Speed: %.1f km/h",
+      "Speed: %.2f km/h",
       vehicle.speed * 3.6
     )
   )
+
+  ui.text(
+    string.format(
+      "Body V: %.2f / %.2f / %.2f",
+      body.velocity.x,
+      body.velocity.y,
+      body.velocity.z
+    )
+  )
+
+  ui.text(
+    string.format(
+      "Body A: %.2f / %.2f / %.2f",
+      body.acceleration.x,
+      body.acceleration.y,
+      body.acceleration.z
+    )
+  )
+
+  ui.text(
+    string.format(
+      "Angular V: %.3f / %.3f / %.3f",
+      body.angularVelocity.x,
+      body.angularVelocity.y,
+      body.angularVelocity.z
+    )
+  )
+
+  ui.text(
+    string.format(
+      "Attitude: R %.3f  P %.3f  Y %.3f",
+      body.attitude.roll,
+      body.attitude.pitch,
+      body.attitude.yaw
+    )
+  )
+
+
+  ui.separator()
+
 
   ui.text(
     string.format(
@@ -393,7 +510,16 @@ function script.windowMain()
     )
   )
 
+  ui.text(
+    string.format(
+      "Shaft Torque: %.1f",
+      powertrain.shaft.torque
+    )
+  )
+
+
   ui.separator()
+
 
   for _, name in ipairs(
       State.getWheelNames()) do
@@ -406,7 +532,7 @@ function script.windowMain()
 
     ui.text(
       string.format(
-        "%s  Load %.0f N  Fx %.0f  Fy %.0f",
+        "%s  Fz %.0f  Fx %.0f  Fy %.0f",
         name,
         wheel.load,
         tire.force.longitudinal,
@@ -416,40 +542,41 @@ function script.windowMain()
 
     ui.text(
       string.format(
-        "    Slip %.4f  Temp %.1f / %.1f C",
-        tire.slipRatio,
-        tire.surfaceTemperature,
-        tire.carcassTemperature
+        "    Omega %.2f  Slip %.4f",
+        wheel.omega,
+        wheel.slipRatio
       )
     )
 
     ui.text(
       string.format(
-        "    Grip %.3f  Carcass %.4f m",
-        tire.thermalGrip,
-        tire.carcassDeflection
+        "    Temp %.1f / %.1f  Grip %.3f",
+        tire.surfaceTemperature,
+        tire.carcassTemperature,
+        tire.thermalGrip
       )
     )
-  end
+  }
+
 
   ui.separator()
 
   ui.text(
-    string.format(
-      "E-7 Thermal / Carcass ACTIVE"
-    )
+    "E-8 BODY / WHEEL DYNAMICS ACTIVE"
   )
 
   ui.text(
-    string.format(
-      "State Valid: %s",
-      tostring(state.diagnostics.valid)
+    "State Valid: "
+    .. tostring(
+      state.diagnostics.valid
     )
   )
 
+
   if app.error then
     ui.text(
-      "ERROR: " .. app.error
+      "ERROR: "
+      .. app.error
     )
   end
 end
