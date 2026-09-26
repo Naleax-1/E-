@@ -1,9 +1,9 @@
 -- DETOX
--- E-7 Core State
+-- E-8 Core State
 
 local State = {}
 
-State.VERSION = "E-7"
+State.VERSION = "E-8"
 
 local WHEEL_NAMES = {
   "FL",
@@ -114,6 +114,7 @@ local function makeVehicle()
 
     velocity = vec3(),
     acceleration = vec3(),
+
     position = vec3(),
 
     heading = 0.0
@@ -130,6 +131,8 @@ local function makeBody()
 
     velocity = vec3(),
     angularVelocity = vec3(),
+
+    position = vec3(),
 
     attitude = {
       roll = 0.0,
@@ -170,6 +173,7 @@ local function makePowertrain()
     },
 
     differential = {
+      inputTorque = 0.0,
       lockRatio = 0.0,
       lockTorque = 0.0,
       leftTorque = 0.0,
@@ -197,8 +201,11 @@ local function makeSnapshot()
   }
 
   for _, name in ipairs(WHEEL_NAMES) do
-    snapshot.wheels[name] = makeWheel()
-    snapshot.tires[name] = makeTire()
+    snapshot.wheels[name] =
+        makeWheel()
+
+    snapshot.tires[name] =
+        makeTire()
   end
 
   return snapshot
@@ -212,14 +219,15 @@ local function deepCopy(value)
   local result = {}
 
   for key, child in pairs(value) do
-    result[key] = deepCopy(child)
+    result[key] =
+        deepCopy(child)
   end
 
   return result
 end
 
 function State.create()
-  local state = {
+  return {
     schema = "DETOX.State.1",
 
     frame = 0,
@@ -229,32 +237,46 @@ function State.create()
     current = makeSnapshot(),
     next = makeSnapshot()
   }
-
-  return state
 end
 
 function State.reset(state)
   state.frame = 0
   state.valid = false
 
-  state.previous = makeSnapshot()
-  state.current = makeSnapshot()
-  state.next = makeSnapshot()
+  state.previous =
+      makeSnapshot()
+
+  state.current =
+      makeSnapshot()
+
+  state.next =
+      makeSnapshot()
 end
 
 function State.beginTick(state)
-  state.previous = deepCopy(state.current)
-  state.next = deepCopy(state.current)
+  state.previous =
+      deepCopy(
+        state.current
+      )
+
+  state.next =
+      deepCopy(
+        state.current
+      )
 
   state.frame =
       state.frame + 1
 end
 
 function State.commit(state)
-  local oldCurrent = state.current
+  local oldCurrent =
+      state.current
 
-  state.current = state.next
-  state.next = oldCurrent
+  state.current =
+      state.next
+
+  state.next =
+      oldCurrent
 
   state.valid =
       state.current.diagnostics.valid
