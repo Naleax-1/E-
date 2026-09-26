@@ -12,65 +12,31 @@ local WHEEL_NAMES = {
   "RR"
 }
 
-local function copyVector(value)
+local function calculateResidual(
+    previous,
+    current
+)
   return {
-    x = value.x or 0.0,
-    y = value.y or 0.0,
-    z = value.z or 0.0
-  }
-end
+    force =
+        math.abs(
+          current.fx - previous.fx
+        )
+        +
+        math.abs(
+          current.fy - previous.fy
+        ),
 
-local function calculateResidual(state)
-  local force = 0.0
-  local torque = 0.0
-  local velocity = 0.0
+    torque =
+        math.abs(
+          current.torque
+          - previous.torque
+        ),
 
-  for _, name in ipairs(WHEEL_NAMES) do
-    local wheel =
-        state.next.wheels[name]
-
-    local tire =
-        state.next.tires[name]
-
-    if wheel and tire then
-      force =
-          force
-          +
-          math.abs(
-            tire.force.longitudinal
-            or 0.0
-          )
-
-      force =
-          force
-          +
-          math.abs(
-            tire.force.lateral
-            or 0.0
-          )
-
-      torque =
-          torque
-          +
-          math.abs(
-            wheel.torque.tire
-            or 0.0
-          )
-
-      velocity =
-          velocity
-          +
-          math.abs(
-            wheel.contactVelocity.x
-            or 0.0
-          )
-    end
-  end
-
-  return {
-    force = force,
-    torque = torque,
-    velocity = velocity
+    velocity =
+        math.abs(
+          current.velocity
+          - previous.velocity
+        )
   }
 end
 
@@ -107,20 +73,7 @@ function CoupledSolver.update(
   }
 
   for iteration = 1, model.maxIterations do
-    solver.iterations =
-        iteration
-
-    /*
-      Iteration order:
-
-      1. Wheel kinematics
-      2. Slip
-      3. Tire
-      4. Thermal
-      5. Carcass
-      6. Differential
-      7. Wheel reaction
-    */
+    solver.iterations = iteration
 
     modules.wheel.updateKinematics(
       state
@@ -173,73 +126,40 @@ function CoupledSolver.update(
       if wheel and tire then
         current.fx =
             current.fx
-            +
-            (
-              tire.force.longitudinal
-              or 0.0
-            )
+            + tire.force.longitudinal
 
         current.fy =
             current.fy
-            +
-            (
-              tire.force.lateral
-              or 0.0
-            )
+            + tire.force.lateral
 
         current.torque =
             current.torque
-            +
-            (
-              wheel.torque.tire
-              or 0.0
-            )
+            + wheel.torque.tire
 
         current.velocity =
             current.velocity
-            +
-            (
-              wheel.contactVelocity.x
-              or 0.0
-            )
+            + wheel.contactVelocity.x
       end
     end
 
-    local residual = {
-      force =
-          math.abs(
-            current.fx - previous.fx
-          )
-          +
-          math.abs(
-            current.fy - previous.fy
-          ),
-
-      torque =
-          math.abs(
-            current.torque
-            - previous.torque
-          ),
-
-      velocity =
-          math.abs(
-            current.velocity
-            - previous.velocity
-          )
-    }
+    local residual =
+        calculateResidual(
+          previous,
+          current
+        )
 
     solver.residual =
         residual
 
     if
         residual.force
-            <= model.forceTolerance
+          <= model.forceTolerance
         and
         residual.torque
-            <= model.torqueTolerance
+          <= model.torqueTolerance
         and
         residual.velocity
-            <= model.velocityTolerance
+          <= model.velocityTolerance
     then
       solver.converged = true
       break
@@ -247,6 +167,11 @@ function CoupledSolver.update(
 
     previous = current
   end
+
+  return solver.converged
+end
+
+return CoupledSolver
 
   return solver.converged
 end
