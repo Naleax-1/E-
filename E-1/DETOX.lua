@@ -7,8 +7,9 @@
 
 local APP_NAME = 'DETOX'
 local VERSION = 'E-1 Core State'
+
 -- DETOX
--- E-8 Main Runtime
+-- E-9 Main Runtime
 
 local State =
     require("Core.state")
@@ -18,6 +19,9 @@ local Input =
 
 local Scheduler =
     require("Core.scheduler")
+
+local CoupledSolver =
+    require("Core.coupled_solver")
 
 
 local Wheel =
@@ -60,6 +64,9 @@ local CarcassModel =
 local BodyModel =
     require("Model.body_model")
 
+local CoupledModel =
+    require("Model.coupled_model")
+
 
 local PowertrainDefinition =
     require("Definition.powertrain")
@@ -74,12 +81,14 @@ local app = {
   state = nil,
   input = nil,
   scheduler = nil,
+  coupledSolver = nil,
 
   tireModel = nil,
   loadModel = nil,
   thermalModel = nil,
   carcassModel = nil,
   bodyModel = nil,
+  coupledModel = nil,
 
   powertrainDefinition = nil,
   differentialDefinition = nil,
@@ -110,6 +119,7 @@ local function initialize()
   app.scheduler =
       Scheduler.create()
 
+
   app.tireModel =
       TireModel.create()
 
@@ -124,6 +134,9 @@ local function initialize()
 
   app.bodyModel =
       BodyModel.create()
+
+  app.coupledModel =
+      CoupledModel.create()
 
 
   app.powertrainDefinition =
@@ -172,6 +185,12 @@ local function initialize()
       )
 
 
+  app.coupledSolver =
+      CoupledSolver.create(
+        app.coupledModel
+      )
+
+
   app.initialized = true
 end
 
@@ -199,27 +218,6 @@ end
 local function phaseSlip()
   Wheel.updateSlip(
     app.state
-  )
-end
-
-
-local function phaseThermalCarcass()
-  Carcass.update(
-    app.state,
-    app.carcassModel
-  )
-
-  Thermal.update(
-    app.state,
-    app.thermalModel
-  )
-end
-
-
-local function phaseTire()
-  Tire.update(
-    app.state,
-    app.tireModel
   )
 end
 
@@ -264,18 +262,61 @@ local function phaseSuspension()
 end
 
 
-local function phaseWheel()
-  Wheel.update(
-    app.state
+local function phaseInitialTire()
+  Carcass.update(
+    app.state,
+    app.carcassModel
+  )
+
+  Thermal.update(
+    app.state,
+    app.thermalModel
+  )
+
+  Tire.update(
+    app.state,
+    app.tireModel
   )
 end
 
 
 local function phaseCoupledIteration()
-  -- Full coupled solver is E-9.
-  --
-  -- E-8 intentionally performs
-  -- one directional body integration.
+  local modules = {
+    wheel = Wheel,
+    tire = Tire,
+
+    tireModel = app.tireModel,
+
+    thermal = Thermal,
+    thermalModel = app.thermalModel,
+
+    carcass = Carcass,
+    carcassModel = app.carcassModel,
+
+    differential = Differential,
+    differentialDefinition =
+        app.differentialDefinition
+  }
+
+  app.coupledSolver:update(
+    app.state,
+    modules
+  )
+
+  app.state.next.coupled.iterations =
+      app.coupledSolver.iterations
+
+  app.state.next.coupled.converged =
+      app.coupledSolver.converged
+
+  app.state.next.coupled.residual.force =
+      app.coupledSolver.residual.force
+
+  app.state.next.coupled.residual.torque =
+      app.coupledSolver.residual.torque
+
+  app.state.next.coupled.residual.velocity =
+      app.coupledSolver.residual.velocity
 end
 
 
@@ -283,6 +324,13 @@ local function phaseBody()
   Body.update(
     app.state,
     app.bodyModel
+  )
+end
+
+
+local function phaseWheelFinal()
+  Wheel.update(
+    app.state
   )
 end
 
@@ -296,10 +344,7 @@ local function phaseValidation()
   diagnostics.lastError = ""
 
 
-  local body =
-      app.state.next.body
-
-  if not body.valid then
+  if not app.state.next.body.valid then
     diagnostics.valid = false
 
     diagnostics.errors =
@@ -326,7 +371,7 @@ local function phaseValidation()
           diagnostics.errors + 1
 
       diagnostics.lastError =
-          "Missing wheel state: "
+          "Missing wheel: "
           .. name
     end
 
@@ -337,9 +382,22 @@ local function phaseValidation()
           diagnostics.errors + 1
 
       diagnostics.lastError =
-          "Missing tire state: "
+          "Missing tire: "
           .. name
     end
+  end
+
+
+  if app.state.next.coupled.iterations
+      <= 0 then
+
+    diagnostics.valid = false
+
+    diagnostics.errors =
+        diagnostics.errors + 1
+
+    diagnostics.lastError =
+        "Coupled solver did not execute"
   end
 end
 
@@ -364,34 +422,43 @@ function script.update(dt)
   end
 
 
-  if dt and dt > 0 then
-    app.state.next.vehicle.dt =
-        dt
-  end
-
-
   local ok, err =
       pcall(function()
 
+        if dt and dt > 0 then
+          app.state.current.vehicle.dt =
+              dt
+        end
+
+
         phaseInput()
+
         phaseSnapshot()
+
+        if dt and dt > 0 then
+          app.state.next.vehicle.dt =
+              dt
+        end
+
 
         phaseKinematics()
         phaseSlip()
-
-        phaseThermalCarcass()
-        phaseTire()
 
         phasePowertrain()
         phaseDifferential()
 
         phaseSuspension()
-        phaseWheel()
+
+        phaseInitialTire()
 
         phaseCoupledIteration()
+
         phaseBody()
 
+        phaseWheelFinal()
+
         phaseValidation()
+
         phaseCommit()
 
         phaseOutput()
@@ -425,7 +492,7 @@ end
 function script.windowMain()
   if not app.initialized then
     ui.text(
-      "DETOX E-8: INITIALIZING"
+      "DETOX E-9: INITIALIZING"
     )
 
     return
@@ -444,8 +511,11 @@ function script.windowMain()
   local powertrain =
       state.powertrain
 
+  local coupled =
+      state.coupled
 
-  ui.text("DETOX E-8")
+
+  ui.text("DETOX E-9")
   ui.separator()
 
 
@@ -463,9 +533,13 @@ function script.windowMain()
     )
   )
 
+
+  ui.separator()
+
+
   ui.text(
     string.format(
-      "Body V: %.2f / %.2f / %.2f",
+      "Body Velocity: %.2f / %.2f / %.2f",
       body.velocity.x,
       body.velocity.y,
       body.velocity.z
@@ -474,7 +548,7 @@ function script.windowMain()
 
   ui.text(
     string.format(
-      "Body A: %.2f / %.2f / %.2f",
+      "Body Accel: %.2f / %.2f / %.2f",
       body.acceleration.x,
       body.acceleration.y,
       body.acceleration.z
@@ -483,19 +557,10 @@ function script.windowMain()
 
   ui.text(
     string.format(
-      "Angular V: %.3f / %.3f / %.3f",
+      "Angular Velocity: %.3f / %.3f / %.3f",
       body.angularVelocity.x,
       body.angularVelocity.y,
       body.angularVelocity.z
-    )
-  )
-
-  ui.text(
-    string.format(
-      "Attitude: R %.3f  P %.3f  Y %.3f",
-      body.attitude.roll,
-      body.attitude.pitch,
-      body.attitude.yaw
     )
   )
 
@@ -517,6 +582,44 @@ function script.windowMain()
     )
   )
 
+  ui.text(
+    string.format(
+      "Diff L/R: %.1f / %.1f",
+      powertrain.differential.leftTorque,
+      powertrain.differential.rightTorque
+    )
+  )
+
+
+  ui.separator()
+
+
+  ui.text(
+    string.format(
+      "Coupled Iterations: %d / %d",
+      coupled.iterations,
+      app.coupledModel.maxIterations
+    )
+  )
+
+  ui.text(
+    string.format(
+      "Converged: %s",
+      tostring(
+        coupled.converged
+      )
+    )
+  )
+
+  ui.text(
+    string.format(
+      "Residual F/T/V: %.3f / %.3f / %.5f",
+      coupled.residual.force,
+      coupled.residual.torque,
+      coupled.residual.velocity
+    )
+  )
+
 
   ui.separator()
 
@@ -532,7 +635,7 @@ function script.windowMain()
 
     ui.text(
       string.format(
-        "%s  Fz %.0f  Fx %.0f  Fy %.0f",
+        "%s Fz %.0f Fx %.0f Fy %.0f",
         name,
         wheel.load,
         tire.force.longitudinal,
@@ -542,18 +645,9 @@ function script.windowMain()
 
     ui.text(
       string.format(
-        "    Omega %.2f  Slip %.4f",
+        "  Omega %.2f Slip %.4f",
         wheel.omega,
         wheel.slipRatio
-      )
-    )
-
-    ui.text(
-      string.format(
-        "    Temp %.1f / %.1f  Grip %.3f",
-        tire.surfaceTemperature,
-        tire.carcassTemperature,
-        tire.thermalGrip
       )
     )
   }
@@ -562,7 +656,7 @@ function script.windowMain()
   ui.separator()
 
   ui.text(
-    "E-8 BODY / WHEEL DYNAMICS ACTIVE"
+    "E-9 COUPLED SOLVER ACTIVE"
   )
 
   ui.text(
