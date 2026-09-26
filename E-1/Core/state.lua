@@ -1,9 +1,9 @@
 -- DETOX
--- E-8 Core State
+-- E-9 Core State
 
 local State = {}
 
-State.VERSION = "E-8"
+State.VERSION = "E-9"
 
 local WHEEL_NAMES = {
   "FL",
@@ -192,6 +192,17 @@ local function makeSnapshot()
     tires = {},
 
     powertrain = makePowertrain(),
+
+    coupled = {
+      iterations = 0,
+      converged = false,
+
+      residual = {
+        force = 0.0,
+        torque = 0.0,
+        velocity = 0.0
+      }
+    },
 
     diagnostics = {
       valid = true,
