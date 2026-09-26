@@ -1,289 +1,224 @@
+-- DETOX
+-- E-8 Wheel Dynamics Engine
+
 local Wheel = {}
 
-Wheel.VERSION = 'E-4'
+Wheel.VERSION = "E-8"
 
-Wheel.WHEEL_INERTIA = 1.8
-Wheel.DEFAULT_RADIUS = 0.33
-
-Wheel.TORQUE_LOSS = 0.0
-
-local WHEELS = {
-    'FL',
-    'FR',
-    'RL',
-    'RR'
+local WHEEL_NAMES = {
+  "FL",
+  "FR",
+  "RL",
+  "RR"
 }
 
-local function vec3(x, y, z)
-    return {
-        x = x or 0,
-        y = y or 0,
-        z = z or 0
-    }
+local DEFAULT = {
+  inertia = 1.20,
+
+  rollingResistance = 8.0,
+
+  minimumRadius = 0.20,
+  maximumRadius = 0.50
+}
+
+local function clamp(value, minValue, maxValue)
+  if value < minValue then
+    return minValue
+  end
+
+  if value > maxValue then
+    return maxValue
+  end
+
+  return value
 end
 
 local function cross(a, b)
-    return {
-        x = a.y * b.z - a.z * b.y,
-        y = a.z * b.x - a.x * b.z,
-        z = a.x * b.y - a.y * b.x
-    }
-end
-
-local function length(v)
-    return math.sqrt(
-        v.x * v.x +
-        v.y * v.y +
-        v.z * v.z
-    )
-end
-
-local function clamp(value, minValue, maxValue)
-    if value < minValue then
-        return minValue
-    end
-
-    if value > maxValue then
-        return maxValue
-    end
-
-    return value
-end
-
-local function wheelPosition(wheel)
-    if wheel.position then
-        return wheel.position
-    end
-
-    return vec3()
+  return {
+    x = a.y * b.z - a.z * b.y,
+    y = a.z * b.x - a.x * b.z,
+    z = a.x * b.y - a.y * b.x
+  }
 end
 
 function Wheel.create()
-    return {
-        version = Wheel.VERSION,
+  local result = {}
 
-        inertia = Wheel.WHEEL_INERTIA,
-
-        wheels = {
-            FL = {},
-            FR = {},
-            RL = {},
-            RR = {}
-        }
+  for _, name in ipairs(WHEEL_NAMES) do
+    result[name] = {
+      inertia = DEFAULT.inertia,
+      radius = 0.33,
+      rollingResistance =
+          DEFAULT.rollingResistance
     }
+  end
+
+  return result
 end
 
-function Wheel.reset(engine)
-    for _, name in ipairs(WHEELS) do
-        engine.wheels[name] = {}
+function Wheel.updateKinematics(state)
+  local body =
+      state.next.body
+
+  for _, name in ipairs(WHEEL_NAMES) do
+    local wheel =
+        state.next.wheels[name]
+
+    if wheel then
+      local position = {
+        x = wheel.position.x or 0.0,
+        y = wheel.position.y or 0.0,
+        z = wheel.position.z or 0.0
+      }
+
+      local angularVelocity = {
+        x = body.angularVelocity.x or 0.0,
+        y = body.angularVelocity.y or 0.0,
+        z = body.angularVelocity.z or 0.0
+      }
+
+      local rotationalVelocity =
+          cross(
+            angularVelocity,
+            position
+          )
+
+      wheel.contactVelocity.x =
+          body.velocity.x
+          + rotationalVelocity.x
+
+      wheel.contactVelocity.y =
+          body.velocity.y
+          + rotationalVelocity.y
+
+      wheel.contactVelocity.z =
+          body.velocity.z
+          + rotationalVelocity.z
+
+      wheel.longitudinalVelocity =
+          wheel.contactVelocity.x
+
+      wheel.lateralVelocity =
+          wheel.contactVelocity.y
     end
+  end
 end
 
-function Wheel.updateKinematics(
-    state
-)
-    local body = state.body
+function Wheel.updateSlip(state)
+  for _, name in ipairs(WHEEL_NAMES) do
+    local wheel =
+        state.next.wheels[name]
 
-    local bodyVelocity =
-        body.velocity or vec3()
+    if wheel then
+      local referenceVelocity =
+          wheel.longitudinalVelocity or 0.0
 
-    local bodyAngularVelocity =
-        body.angularVelocity or vec3()
+      local wheelVelocity =
+          wheel.omega *
+          math.max(wheel.radius, 0.001)
 
-    for _, name in ipairs(WHEELS) do
+      local denominator =
+          math.max(
+            math.abs(referenceVelocity),
+            1.0
+          )
 
-        local wheel =
-            state.wheels[name]
+      wheel.slipRatio =
+          (
+            wheelVelocity
+            - referenceVelocity
+          )
+          / denominator
 
-        if wheel then
-            local position =
-                wheelPosition(wheel)
+      local lateralVelocity =
+          wheel.lateralVelocity or 0.0
 
-            local rotationalVelocity =
-                cross(
-                    bodyAngularVelocity,
-                    position
-                )
-
-            local contactVelocity = {
-                x =
-                    bodyVelocity.x +
-                    rotationalVelocity.x,
-
-                y =
-                    bodyVelocity.y +
-                    rotationalVelocity.y,
-
-                z =
-                    bodyVelocity.z +
-                    rotationalVelocity.z
-            }
-
-            wheel.contactVelocity =
-                contactVelocity
-
-            wheel.longitudinalVelocity =
-                contactVelocity.z
-
-            wheel.lateralVelocity =
-                contactVelocity.x
-        end
+      wheel.slipAngle =
+          math.atan(
+            lateralVelocity /
+            denominator
+          )
     end
+  end
 end
 
-function Wheel.updateDynamics(
-    state,
-    dt
-)
-    if dt <= 0 then
-        return
+function Wheel.update(state)
+  local dt =
+      state.next.vehicle.dt or
+      (1.0 / 333.0)
+
+  if dt <= 0 then
+    dt = 1.0 / 333.0
+  end
+
+  for _, name in ipairs(WHEEL_NAMES) do
+    local wheel =
+        state.next.wheels[name]
+
+    if wheel then
+      local radius =
+          clamp(
+            wheel.radius or 0.33,
+            DEFAULT.minimumRadius,
+            DEFAULT.maximumRadius
+          )
+
+      local inertia =
+          DEFAULT.inertia
+
+      local drive =
+          wheel.torque.drive or 0.0
+
+      local brake =
+          wheel.torque.brake or 0.0
+
+      local tire =
+          wheel.torque.tire or 0.0
+
+      local rolling =
+          wheel.torque.loss or 0.0
+
+      local brakeSign = 0.0
+
+      if wheel.omega > 0.001 then
+        brakeSign = 1.0
+      elseif wheel.omega < -0.001 then
+        brakeSign = -1.0
+      end
+
+      local netTorque =
+          drive
+          - brake * brakeSign
+          + tire
+          - rolling * brakeSign
+
+      local angularAcceleration =
+          netTorque / inertia
+
+      wheel.angularAcceleration =
+          angularAcceleration
+
+      wheel.omega =
+          wheel.omega
+          + angularAcceleration * dt
+
+      wheel.rotation =
+          wheel.rotation
+          + wheel.omega * dt
+
+      wheel.valid = true
+
+      -- Reaction torque generated by the tire
+      -- is preserved for the drivetrain solver.
+      wheel.torque.tire =
+          -(
+            wheel.force.longitudinal or 0.0
+          )
+          * radius
     end
+  end
 
-    for _, name in ipairs(WHEELS) do
-
-        local wheel =
-            state.wheels[name]
-
-        if wheel then
-
-            local radius =
-                wheel.radius
-
-            if radius <= 0 then
-                radius =
-                    Wheel.DEFAULT_RADIUS
-
-                wheel.radius =
-                    radius
-            end
-
-            local inertia =
-                Wheel.WHEEL_INERTIA
-
-            if inertia <= 0 then
-                inertia = 1.0
-            end
-
-            local driveTorque =
-                wheel.torque.drive or 0
-
-            local brakeTorque =
-                wheel.torque.brake or 0
-
-            local tireTorque =
-                wheel.torque.tire or 0
-
-            local lossTorque =
-                wheel.torque.loss or 0
-
-            local totalTorque =
-                driveTorque
-                - brakeTorque
-                - tireTorque
-                - lossTorque
-
-            local angularAcceleration =
-                totalTorque / inertia
-
-            local omega =
-                wheel.omega or 0
-
-            omega =
-                omega +
-                angularAcceleration * dt
-
-            wheel.angularAcceleration =
-                angularAcceleration
-
-            wheel.omega =
-                omega
-
-            wheel.rotation =
-                (wheel.rotation or 0)
-                + omega * dt
-        end
-    end
-end
-
-function Wheel.updateSlip(
-    state
-)
-    for _, name in ipairs(WHEELS) do
-
-        local wheel =
-            state.wheels[name]
-
-        if wheel then
-
-            local radius =
-                wheel.radius
-
-            if radius <= 0 then
-                radius =
-                    Wheel.DEFAULT_RADIUS
-
-                wheel.radius =
-                    radius
-            end
-
-            local wheelVelocity =
-                wheel.omega * radius
-
-            local referenceVelocity =
-                wheel.longitudinalVelocity or 0
-
-            local denominator =
-                math.max(
-                    math.abs(referenceVelocity),
-                    0.5
-                )
-
-            local slip =
-                (
-                    wheelVelocity -
-                    referenceVelocity
-                ) / denominator
-
-            wheel.slipRatio =
-                clamp(
-                    slip,
-                    -5.0,
-                    5.0
-                )
-
-            local lateralVelocity =
-                wheel.lateralVelocity or 0
-
-            local longitudinalVelocity =
-                math.abs(
-                    referenceVelocity
-                )
-
-            if longitudinalVelocity > 0.5 then
-                wheel.slipAngle =
-                    math.atan(
-                        lateralVelocity /
-                        longitudinalVelocity
-                    )
-            else
-                wheel.slipAngle = 0
-            end
-        end
-    end
-end
-
-function Wheel.update(
-    state,
-    dt
-)
-    Wheel.updateKinematics(state)
-
-    Wheel.updateDynamics(
-        state,
-        dt
-    )
-
-    Wheel.updateSlip(state)
+  return true
 end
 
 return Wheel
