@@ -1,77 +1,24 @@
--- DETOX
--- E-7 Carcass Engine
-
-local Carcass = {}
-
-Carcass.VERSION = "E-7"
-
-local WHEEL_NAMES = {
-  "FL",
-  "FR",
-  "RL",
-  "RR"
-}
-
-function Carcass.create(model)
-  return {
-    model = model,
-    valid = false
-  }
-end
-
-function Carcass.initializeState(state, model)
-  for _, name in ipairs(WHEEL_NAMES) do
-    local tire = state.next.tires[name]
-
-    if tire then
-      tire.carcassDeflection = 0.0
-      tire.carcassVelocity = 0.0
-      tire.carcassEnergy = 0.0
-      tire.carcassHysteresis = 0.0
-    end
+local C={}
+function C.create(model) return {model=model} end
+function C.update(self,state,model)
+  local api=model
+  local config=self and self.model
+  if type(api)~="table" or type(api.solve)~="function" then
+    error("CarcassModel.solve is unavailable")
+  end
+  if type(config)~="table" then error("CarcassModel configuration is unavailable") end
+  local solve=api.solve
+  local dt=state.next.vehicle.dt
+  for _,n in ipairs({"FL","FR","RL","RR"}) do
+    local t=state.next.tires[n]; local w=state.next.wheels[n]
+    if not t or not w then error("Missing carcass wheel/tire: "..n) end
+    local d,v,e,h=solve(config,t,w.load,dt)
+    t.carcassDeflection=d; t.carcassVelocity=v; t.carcassEnergy=e; t.carcassHysteresis=h
   end
 end
-
-function Carcass.update(state, model)
-  local dt =
-      state.next.vehicle.dt or
-      (1.0 / 333.0)
-
-  for _, name in ipairs(WHEEL_NAMES) do
-    local wheel = state.next.wheels[name]
-    local tire = state.next.tires[name]
-
-    if wheel and tire then
-      local carcassState = {
-        deflection = tire.carcassDeflection or 0.0,
-        velocity = tire.carcassVelocity or 0.0,
-        energy = tire.carcassEnergy or 0.0,
-        hysteresis = tire.carcassHysteresis or 0.0
-      }
-
-      model.solve(
-        model,
-        carcassState,
-        {
-          dt = dt,
-          load = wheel.load or 0.0
-        }
-      )
-
-      tire.carcassDeflection = carcassState.deflection
-      tire.carcassVelocity = carcassState.velocity
-      tire.carcassEnergy = carcassState.energy
-      tire.carcassHysteresis = carcassState.hysteresis
-      tire.valid = true
-    end
-  end
-
-  return true
+function C.getObserverData(state)
+  local out={}
+  for _,name in ipairs({"FL","FR","RL","RR"}) do local t=state and state.tires and state.tires[name] or {}; out[name]={deflection=t.carcassDeflection or 0, velocity=t.carcassVelocity or 0, energy=t.carcassEnergy or 0, hysteresis=t.carcassHysteresis or 0} end
+  return out
 end
-
-return Carcass
-
-  Carcass.valid = true
-end
-
-return Carcass
+return C

@@ -1,109 +1,25 @@
--- DETOX
--- E-7 Thermal Engine
-
-local Thermal = {}
-
-Thermal.VERSION = "E-7"
-
-local WHEEL_NAMES = {
-  "FL",
-  "FR",
-  "RL",
-  "RR"
-}
-
-function Thermal.create(model)
-  return {
-    model = model,
-    valid = false
-  }
-end
-
-function Thermal.update(state, model)
-  local dt =
-      state.next.vehicle.dt or
-      (1.0 / 333.0)
-
-  local speed =
-      math.abs(state.next.vehicle.speed or 0.0)
-
-  for _, name in ipairs(WHEEL_NAMES) do
-    local wheel = state.next.wheels[name]
-    local tire = state.next.tires[name]
-
-    if wheel and tire then
-
-      local fx =
-          tire.force.longitudinal or 0.0
-
-      local fy =
-          tire.force.lateral or 0.0
-
-      local vx =
-          wheel.longitudinalVelocity or 0.0
-
-      local vy =
-          wheel.lateralVelocity or 0.0
-
-      local slipEnergy =
-          math.abs(fx * vx)
-          + math.abs(fy * vy)
-
-      local thermalState = {
-        surfaceTemperature =
-            tire.surfaceTemperature or
-            model.surfaceInitial,
-
-        carcassTemperature =
-            tire.carcassTemperature or
-            model.carcassInitial,
-
-        heatInput = tire.heatInput or 0.0,
-        cooling = tire.cooling or 0.0,
-        slipEnergy = tire.slipEnergy or 0.0,
-
-        thermalGrip =
-            tire.thermalGrip or 1.0,
-
-        valid = true
-      }
-
-      model.solve(
-        model,
-        thermalState,
-        {
-          dt = dt,
-          speed = speed,
-          load = wheel.load or 0.0,
-          slipEnergy = slipEnergy,
-          ambientTemperature =
-              model.ambientTemperature
-        }
-      )
-
-      tire.surfaceTemperature =
-          thermalState.surfaceTemperature
-
-      tire.carcassTemperature =
-          thermalState.carcassTemperature
-
-      tire.heatInput =
-          thermalState.heatInput
-
-      tire.cooling =
-          thermalState.cooling
-
-      tire.slipEnergy =
-          thermalState.slipEnergy
-
-      tire.thermalGrip =
-          thermalState.thermalGrip
-
-      tire.valid = true
-    end
+local T={}
+function T.create(model) return {model=model} end
+function T.update(self,state,model)
+  local api=model
+  local config=self and self.model
+  if type(api)~="table" or type(api.solve)~="function" then error("ThermalModel.solve is unavailable") end
+  if type(config)~="table" then error("ThermalModel configuration is unavailable") end
+  local solve=api.solve
+  local dt=state.next.vehicle.dt
+  for _,n in ipairs({"FL","FR","RL","RR"}) do
+    local t=state.next.tires[n]; local w=state.next.wheels[n]
+    if not t or not w then error("Missing thermal wheel/tire: "..n) end
+    local slipEnergy=math.abs((t.force.longitudinal or 0)*(w.longitudinalVelocity or 0)) + math.abs((t.force.lateral or 0)*(w.lateralVelocity or 0))
+    local surface,carcass,grip,heat=solve(config,t,slipEnergy,dt)
+    t.surfaceTemperature=surface; t.carcassTemperature=carcass
+    t.thermalGrip=grip; t.heatInput=heat; t.slipEnergy=slipEnergy
+    t.cooling=math.max(0,surface-config.ambient)*config.cooling
   end
-
-  return true
 end
-
-return Thermal
+function T.getObserverData(state)
+  local out={}
+  for _,name in ipairs({"FL","FR","RL","RR"}) do local t=state and state.tires and state.tires[name] or {}; out[name]={surface=t.surfaceTemperature or 0, carcass=t.carcassTemperature or 0, grip=t.thermalGrip or 0, heat=t.heatInput or 0} end
+  return out
+end
+return T
