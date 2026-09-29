@@ -1,0 +1,62 @@
+DETOX E-12 BASELINE / E-13..17 EXPERIMENTAL OUTPUT PIPELINE
+
+E-12 app remains read-only. Nothing is injected by default.
+
+Install mode A: copy E-1's app files and folders to the original CSP Lua app
+location as before (manifest.ini + DETOX.lua). Injection is intentionally
+unavailable in that app context. The app's Observer observes its OWN runtime.
+
+Install mode B (EXPERIMENTAL, on-car validation required): for a dedicated
+unpacked test car, place the Core, Engine, Model, Definition, Observer, Send,
+Safety and Verification folders plus DETOX.lua directly in that car's data
+folder. Copy car_physics/script.lua to data/script.lua. Enable CSP extended
+physics. Do not overwrite an existing car script without integrating it.
+The physics script's state is NOT shared with the separate Lua app instance;
+its Observer snapshots cannot be assumed to appear in the app window.
+CSP ac.connect default sharing is restricted between script categories, so no
+cross-context bridge is claimed here. A CSP-native verified communication
+channel is required for live app-side display of the physics-script status.
+
+The car physics script exposes commands on its script object:
+  script.detoxArmTest()         -- explicitly start at 10% of safe capped FX
+  script.detoxEnableFX()        -- only after TEST; full capped FX
+  script.detoxDisable()         -- stop applying; applied=0
+  script.detoxEmergencyDisable()-- latch emergency stop
+  script.detoxClearEmergency()  -- clear latch to SAFE/DISABLED; must rearm
+  script.detoxResetFault()      -- clear fault to SAFE/DISABLED; must rearm
+  script.detoxSetConditions({vehicle=...,track=...,weather=...,surface=...,
+    setup=...,fuel=...,tyre=...,temperature=...,inputMethod=...})
+  script.detoxAddStandard(sample,conditions) -- external AC-standard A sample
+  script.detoxVerification()    -- A/B/C counts and per-test measurements
+
+DO NOT arm injection until the car physics script is running on a private test
+car with verified FX orientation and a physical emergency-off procedure. A
+successful ac.addForce call proves only API acceptance, not a changed AC car
+state. Numeric proof requires independently recorded on-car A (no script), B
+(script running, injection disabled) and C (FX enabled) runs with identical
+conditions and matched speed/RPM/throttle/brake/steer profiles.
+
+Boundary: State -> Engine/Model/Solver -> PhysicsOutput (E-13) ->
+InjectionSafety (E-14/15) -> InjectionController (E-14/16) ->
+CSP physics-script ac.addForce(local +Z only, FX) -> Dynamic (E-17).
+The other channels (FY/FZ, TX/TY/TZ, wheel, suspension, thermal) are observed
+but NEVER injected. No verified adapters exist for them in this build. No
+fabricated AC telemetry is used; optional wheel AC signals stay absent if CSP
+has no corresponding fields. The displayed 'applied' is a submitted force,
+not proof of a measured AC response.
+
+Safety: stale sequence/age, missing input, validation errors, non-finite body
+and wheel output, target limit (150 N), hard overflow (600 N), module/API
+errors and emergency latch stop the next call. Values above 150 N and up to
+600 N are clamped; above 600 N faults. Recovery requires explicit reset and
+new TEST. Previous physics-tick impulses cannot be undone retroactively.
+
+Known block to Production Gate: the sandbox has no running Assetto Corsa/CSP
+and cannot perform a genuine A/B/C on-car comparison, verify app/physics
+bridge, or certify torque/wheel/suspension/thermal AC adapters. The E-17 gate
+must remain PENDING_REAL_AC_EVIDENCE. Do not represent mock tests as proof.
+
+No physics formula changes. Core/input.lua reads optional extra AC telemetry;
+other pre-existing Core/Engine/Model/Definition physics equations are intact.
+Reference: https://cup.acstuff.club/docs/csp/cars/physics-scripts
+CSP ac.connect restrictions: https://github.com/ac-custom-shaders-patch/acc-lua-sdk/blob/main/common/ac_extras_connect.lua
