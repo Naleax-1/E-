@@ -36,6 +36,16 @@ function Input.update(self,state)
   n.input.handbrake=safe(function() return c.handbrake end,n.input.handbrake)
   n.input.gear=safe(function() return c.gear end,n.input.gear)
   n.input.rpm=safe(function() return c.rpm end,n.input.rpm)
+  -- Independent AC measurements for E-17; do not overwrite DETOX wheel states.
+  n.input.acWheels={}
+  for index,name in ipairs({"FL","FR","RL","RR"}) do
+    local i=index-1 -- CSP wheel arrays are zero-based.
+    n.input.acWheels[name]={
+      omega=safe(function() return c.wheelAngularSpeed[i] end,nil),
+      slip=safe(function() return c.wheelSlipRatio[i] end,nil),
+      load=safe(function() return c.wheelLoad[i] end,nil)
+    }
+  end
   n.valid=true; self.available=true
   return true
 end

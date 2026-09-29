@@ -10,7 +10,7 @@ local frame = 0
 local observerTime = 0.0
 local lastError = ""
 local registry = nil
-local snapshots = {core={},engine={},model={},definition={},send={}}
+local snapshots = {core={},engine={},model={},definition={},send={},safety={},verification={}}
 local WHEELS = {"FL","FR","RL","RR"}
 
 local function num(v,d)
@@ -63,6 +63,8 @@ function M.update(dt,state,input,modules)
   snapshots.model=collectGroup(registry.model,state)
   snapshots.definition=collectGroup(registry.definition,state)
   snapshots.send=collectGroup(registry.send,state)
+  snapshots.safety=collectGroup(registry.safety,state)
+  snapshots.verification=collectGroup(registry.verification,state)
 end
 
 local function statusLine(group,name)
@@ -73,7 +75,7 @@ end
 local function drawHeader(state)
   local info=get("core","State") or {}
   ui.text("DETOX Observer")
-  ui.text("E-12 MODULE-CONNECTED VERIFICATION")
+  ui.text("E-12 BASELINE / E-13 TO E-17 SAFETY VERIFICATION")
   ui.separator()
   ui.text("Frame       : "..tostring(info.frame or 0).." / UI "..tostring(frame))
   ui.text(string.format("Observer    : %.2f s",observerTime))
@@ -137,6 +139,47 @@ local function drawSend()
   ui.text("Applied       : "..tostring(s.applied or 0))
 end
 
+local function drawOutputVerification()
+  local s=get("send","PhysicsOutput") or {}
+  local f=s.force or {}; local t=s.torque or {}; local wheels=s.wheels or {}
+  local inj=get("send","Injection") or {}
+  local dv=get("verification","Dynamic") or {}
+  ui.separator();ui.text("=== PHYSICS OUTPUT VERIFICATION ===")
+  ui.text("Output "..tostring(s.output or "NONE").."  Output Valid "..yes(s.valid))
+  ui.text(string.format("Sequence %d  Transfer Count %d  Fresh %s  Stale %s",
+    num(s.sequence),num(s.transferCount),yes(s.fresh),yes(s.stale)))
+  ui.text("=== FORCE ===")
+  ui.text(string.format("FX %.2f  FY %.2f  FZ %.2f",num(f.x),num(f.y),num(f.z)))
+  ui.text("=== TORQUE ===")
+  ui.text(string.format("TX %.2f  TY %.2f  TZ %.2f",num(t.x),num(t.y),num(t.z)))
+  ui.text("=== WHEEL OUTPUT ===")
+  for _,name in ipairs(WHEELS) do
+    local w=wheels[name] or {}
+    ui.text(string.format("%s Load %.1f Omega %.2f Slip %.3f Fx %.1f Fy %.1f",
+      name,num(w.load),num(w.omega),num(w.slipRatio),num(w.fx),num(w.fy)))
+  end
+  ui.text("=== OUTPUT BOUNDARY ===")
+  ui.text("PhysicsOutput "..statusLine("send","PhysicsOutput").." Boundary "..tostring(s.boundary or "UNKNOWN"))
+  ui.text("Injection "..tostring(s.injection or "DISABLED").." Applied "..tostring(s.applied or 0))
+  ui.separator();ui.text("=== INJECTION SAFETY ===")
+  ui.text("Target "..tostring(inj.target or "FX").." Stage "..tostring(inj.stage or 1).." Context "..tostring(inj.context or "UNKNOWN"))
+  ui.text(string.format("Requested %.2f  Applied %.2f  Limit %.2f  Clamped %s",
+    num(inj.requested),num(inj.applied),num(inj.limit),yes(inj.clamped)))
+  ui.text("Safety "..tostring(inj.safety or "UNKNOWN").." Reason "..tostring(inj.reason or "UNKNOWN"))
+  ui.text("Emergency "..yes(inj.emergency).."  Adapter calls "..tostring(inj.calls or 0))
+  ui.text("=== DYNAMIC VERIFICATION / PRODUCTION GATE ===")
+  ui.text("A (AC standard) "..tostring((dv.count or {}).A or 0)..
+    "  B (OFF) "..tostring((dv.count or {}).B or 0)..
+    "  C (ON) "..tostring((dv.count or {}).C or 0))
+  for _,test in ipairs({"Launch","Acceleration","Braking","Cornering","LoadTransfer"}) do
+    local c=(dv.cases or {})[test] or {};local counts=c.counts or {}
+    ui.text(string.format("%s A:%d B:%d C:%d %s delta(C-B):%s km/h",
+      test,num(counts.A),num(counts.B),num(counts.C),c.status or "PENDING",
+      c.deltaCB and string.format("%.3f",c.deltaCB) or "N/A"))
+  end
+  ui.text("Production Gate "..tostring(dv.productionGate or "PENDING_REAL_AC_EVIDENCE"))
+end
+
 local function drawErrors()
   if lastError~="" then
     ui.separator();ui.text("Observer Contract Error: ")
@@ -152,6 +195,7 @@ function M.windowMain(state,input)
   drawEngine(state)
   drawModelsDefinitions()
   drawSend()
+  drawOutputVerification()
   drawErrors()
 end
 M.drawUI=M.windowMain
