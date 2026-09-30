@@ -167,6 +167,40 @@ local function drawOutputVerification()
     num(inj.requested),num(inj.applied),num(inj.limit),yes(inj.clamped)))
   ui.text("Safety "..tostring(inj.safety or "UNKNOWN").." Reason "..tostring(inj.reason or "UNKNOWN"))
   ui.text("Emergency "..yes(inj.emergency).."  Adapter calls "..tostring(inj.calls or 0))
+  local bridge=get("send","Bridge") or {}
+  local tr=get("verification","Trace") or {}
+  local event=inj.lastEvent or {}
+  local adapter=inj.adapter or {}
+  local before=inj.preAddForce or {}
+  ui.text("=== INJECTION STATE MACHINE / TRANSITION LOG ===")
+  ui.text("Instance "..tostring(tr.instance or "UNKNOWN").."  Context "..tostring(tr.context or "UNKNOWN"))
+  ui.text("State "..tostring(inj.injection or "DISABLED").."  Last event "..tostring(event.event or "NONE"))
+  ui.text("Transition "..tostring(event.from or "NONE").." -> "..tostring(event.to or "NONE")..
+    " Cause "..tostring(event.reason or "DEFAULT_OFF"))
+  local events=inj.transitions or {}
+  for idx=math.max(1,#events-4),#events do
+    local e=events[idx]
+    if e then ui.text(string.format("#%d %s %s -> %s : %s",num(e.id),
+      tostring(e.event),tostring(e.from),tostring(e.to),tostring(e.reason))) end
+  end
+  ui.text("=== APP / PHYSICS BRIDGE (UNVERIFIED UNTIL ACK) ===")
+  ui.text("Bridge "..tostring(bridge.status or "NO_TRANSPORT").." Send attempts "..tostring(bridge.sent or 0)..
+    " Physics received "..tostring(bridge.received or 0).." accepted "..tostring(bridge.accepted or 0))
+  ui.text("Bridge command "..tostring(bridge.lastCommand or "NONE").." Reason "..tostring(bridge.lastReason or "UNKNOWN"))
+  ui.text("Adapter safety accepted "..tostring(adapter.accepted or 0).." addForce skipped "..
+    tostring(adapter.skipped or 0).." requested "..tostring(adapter.request or 0)..
+    " Reason "..tostring(adapter.reason or "DEFAULT_OFF"))
+  ui.text(string.format("Pre-addForce FX %.4f  Safe FX %.4f  AC local Z %.4f N",
+    num(before.requestedFX),num(before.safeFX),num(before.localZ)))
+  local sample=tr.last or {}
+  ui.text("=== SAME-SESSION COMPARISON SAMPLE ===")
+  ui.text("Label "..tostring(tr.label or "UNLABELLED").." Frame "..tostring(sample.frame or 0)..
+    " Count "..tostring(tr.count or 0))
+  ui.text(string.format("AC speed %.3f km/h accel %.3f m/s2 gas %.3f brake %.3f steer %.3f",
+    num(sample.speed),num(sample.acceleration),num(sample.gas),num(sample.brake),num(sample.steer)))
+  ui.text(string.format("FX %.3f FY %.3f FZ %.3f Requested %.3f Applied %.4f addForce calls %d",
+    num(sample.FX),num(sample.FY),num(sample.FZ),num(sample.requested),
+    num(sample.applied),num(sample.addForceCalls)))
   ui.text("=== DYNAMIC VERIFICATION / PRODUCTION GATE ===")
   ui.text("A (AC standard) "..tostring((dv.count or {}).A or 0)..
     "  B (OFF) "..tostring((dv.count or {}).B or 0)..

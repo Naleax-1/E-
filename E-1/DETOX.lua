@@ -32,6 +32,8 @@ local PhysicsOutput=require("Send.physics_output")
 local InjectionSafety=require("Safety.injection_safety")
 local InjectionController=require("Send.injection_controller")
 local Dynamic=require("Verification.dynamic")
+local Trace=require("Verification.trace")
+local Bridge=require("Send.command_bridge")
 
 local app={initialized=false,error=nil}
 
@@ -65,6 +67,10 @@ local function initialize()
   -- The app manifest is always read-only. Only the optional car physics
   -- bootstrap explicitly opts into the CSP physics-thread API.
   app.injection.enabledInPhysics=DETOX_PHYSICS_CONTEXT==true
+  app.context=app.injection.enabledInPhysics and "CAR_PHYSICS" or "APP_READ_ONLY"
+  app.instance=tostring(app)
+  app.bridge=Bridge.create(app.context)
+  app.trace=Trace.create(app.context,app.instance)
   app.verification=Dynamic.create()
   Observer.init()
   VehicleDefinition.apply(app.state,app.vehicleDefinition)
@@ -120,11 +126,13 @@ function script.update(dt)
     Validation.validate(app.state)
     State.commit(app.state)
     PhysicsOutput.update(app.physicsOutput,app.state)
+    if app.injection.enabledInPhysics then Bridge.poll(app.bridge,app.injection) end
     InjectionController.update(app.injection,app.physicsOutput,app.state)
     app.physicsOutput.injection=app.injection.mode
     app.physicsOutput.applied=app.injection.applied
     app.physicsOutput.boundary=app.injection.enabledInPhysics and "SAFETY_GATE" or "READ_ONLY"
     Dynamic.record(app.verification,app.state,app.physicsOutput,app.injection)
+    Trace.capture(app.trace,app.state,app.physicsOutput,app.injection,app.bridge)
     Observer.update(dt,app.state.current,app.input,{
       core={
         State={api=State,arg=app.state},
@@ -148,9 +156,11 @@ function script.update(dt)
         Tire={api=TireDefinition,arg=app.tireDefinition}
       },
       send={PhysicsOutput={api=PhysicsOutput,arg=app.physicsOutput},
-        Injection={api=InjectionController,arg=app.injection}},
+        Injection={api=InjectionController,arg=app.injection},
+        Bridge={api=Bridge,arg=app.bridge}},
       safety={InjectionSafety={api=InjectionSafety,arg=app.injection.gate}},
-      verification={Dynamic={api=Dynamic,arg=app.verification}}
+      verification={Dynamic={api=Dynamic,arg=app.verification},
+        Trace={api=Trace,arg=app.trace}}
     })
   end)
   if not ok then
@@ -162,6 +172,7 @@ function script.update(dt)
     app.state.current.diagnostics.lastError=app.error
     app.physicsOutput.injection=app.injection.mode
     app.physicsOutput.applied=0
+    Trace.capture(app.trace,app.state,app.physicsOutput,app.injection,app.bridge)
     Observer.update(dt,app.state.current,app.input)
   else
     app.error=nil
@@ -169,10 +180,36 @@ function script.update(dt)
 end
 
 -- Commands are explicit; no automatic fault reset or injection on startup.
-function script.detoxArmTest() return app.initialized and InjectionController.armTest(app.injection) end
+function script.detoxArmTest()
+  if not app.initialized then return false,"NOT_INITIALIZED" end
+  if not app.injection.enabledInPhysics then Bridge.send(app.bridge,"ARM_FX_TEST") end
+  return InjectionController.armTest(app.injection,"LOCAL_ARM_BUTTON")
+end
 function script.detoxEnableFX() return app.initialized and InjectionController.enable(app.injection) end
 function script.detoxDisable() return app.initialized and InjectionController.disable(app.injection) end
-function script.detoxEmergencyDisable() return app.initialized and InjectionController.emergencyDisable(app.injection) end
+function script.detoxEmergencyDisable(origin)
+  return app.initialized and InjectionController.emergencyDisable(app.injection,origin)
+end
+function script.detoxRequestMicroPulse()
+  return app.initialized and InjectionController.requestMicroPulse(app.injection)
+end
+function script.detoxSendPing()
+  return app.initialized and Bridge.send(app.bridge,"PING")
+end
+function script.detoxAttachDiagnosticTransport(transport)
+  if not app.initialized or not transport or transport.verified~=true then return false,"UNVERIFIED_TRANSPORT" end
+  app.bridge.transport=transport;app.bridge.status="TRANSPORT_ATTACHED_UNPROVEN_ON_CSP"
+  return true
+end
+function script.detoxTraceLabel(label)
+  return app.initialized and Trace.setLabel(app.trace,label)
+end
+function script.detoxDiagnostics()
+  if not app.initialized then return nil end
+  return {controller=InjectionController.getObserverData(app.injection),
+    bridge=Bridge.getObserverData(app.bridge),trace=Trace.getObserverData(app.trace),
+    samples=Trace.getRows(app.trace)}
+end
 function script.detoxResetFault() return app.initialized and InjectionController.resetFault(app.injection) end
 function script.detoxClearEmergency() return app.initialized and InjectionController.clearEmergency(app.injection) end
 function script.detoxSetConditions(conditions)
@@ -191,15 +228,23 @@ function script.windowMain()
     return
   end
   local ok,err=pcall(function()
-    Observer.windowMain(app.state.current, app.input)
     if ui.button then
-      if ui.button("EMERGENCY DISABLE") then script.detoxEmergencyDisable() end
-      if ui.button("Disable Injection") then script.detoxDisable() end
-      if ui.button("Reset Fault to SAFE") then script.detoxResetFault() end
-      if ui.button("Clear Emergency Latch") then script.detoxClearEmergency() end
-      if ui.button("Arm FX TEST") then script.detoxArmTest() end
-      if ui.button("Enable FX (after TEST)") then script.detoxEnableFX() end
+      local emergency=ui.button("EMERGENCY DISABLE")
+      local disable=ui.button("Disable Injection")
+      local reset=ui.button("Reset Fault to SAFE")
+      local clear=ui.button("Clear Emergency Latch")
+      local arm=ui.button("Arm FX TEST (dry run)")
+      local enable=ui.button("Enable FX (LOCKED)")
+      if emergency then script.detoxEmergencyDisable("APP_UI_EMERGENCY_BUTTON")
+      elseif disable then script.detoxDisable()
+      elseif reset then script.detoxResetFault()
+      elseif clear then script.detoxClearEmergency()
+      elseif arm then script.detoxArmTest()
+      elseif enable then script.detoxEnableFX() end
+      -- Render the button response in this same UI frame, not one tick late.
+      Observer.update(0,app.state.current,app.input)
     end
+    Observer.windowMain(app.state.current, app.input)
   end)
   if not ok then ui.text("DETOX OBSERVER ERROR"); ui.text(tostring(err)) end
 end

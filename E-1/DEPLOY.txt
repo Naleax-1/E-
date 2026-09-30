@@ -17,9 +17,10 @@ CSP ac.connect default sharing is restricted between script categories, so no
 cross-context bridge is claimed here. A CSP-native verified communication
 channel is required for live app-side display of the physics-script status.
 
-The car physics script exposes commands on its script object:
-  script.detoxArmTest()         -- explicitly start at 10% of safe capped FX
-  script.detoxEnableFX()        -- only after TEST; full capped FX
+The car physics script exposes diagnostic commands on its OWN script object:
+  script.detoxArmTest()         -- enter TEST dry-run; NO addForce call
+  script.detoxRequestMicroPulse() -- explicitly request ONE fixed 0.01 N pulse
+  script.detoxEnableFX()        -- LOCKED: no full-strength output in this build
   script.detoxDisable()         -- stop applying; applied=0
   script.detoxEmergencyDisable()-- latch emergency stop
   script.detoxClearEmergency()  -- clear latch to SAFE/DISABLED; must rearm
@@ -28,17 +29,23 @@ The car physics script exposes commands on its script object:
     setup=...,fuel=...,tyre=...,temperature=...,inputMethod=...})
   script.detoxAddStandard(sample,conditions) -- external AC-standard A sample
   script.detoxVerification()    -- A/B/C counts and per-test measurements
+  script.detoxTraceLabel('NORMAL' or 'ARM_ATTEMPT')
+  script.detoxDiagnostics()     -- state machine, bridge state, bounded tick samples
+  script.detoxSendPing()        -- diagnostic transport check; fails if unconnected
 
-DO NOT arm injection until the car physics script is running on a private test
-car with verified FX orientation and a physical emergency-off procedure. A
-successful ac.addForce call proves only API acceptance, not a changed AC car
-state. Numeric proof requires independently recorded on-car A (no script), B
-(script running, injection disabled) and C (FX enabled) runs with identical
-conditions and matched speed/RPM/throttle/brake/steer profiles.
+UI App Arm FX TEST sends no AC force. In the standalone car physics script,
+Arm FX TEST is only a dry run. The separate, explicit one-shot micro pulse
+requests a fixed +0.01 N local Z after Safety.check; it cannot recur without
+another explicit request. Full ENABLED is locked in this diagnostic build.
+DO NOT request even the micro pulse without a dedicated test car, verified
+orientation and an emergency-off procedure. ac.addForce returning is only API
+acceptance, not measured physical response. Numeric proof still requires
+matched on-car A (no script), B (script running, injection disabled), C (known
+pulse) runs; separate race starts are NOT matched A/B evidence.
 
 Boundary: State -> Engine/Model/Solver -> PhysicsOutput (E-13) ->
 InjectionSafety (E-14/15) -> InjectionController (E-14/16) ->
-CSP physics-script ac.addForce(local +Z only, FX) -> Dynamic (E-17).
+CSP physics-script ac.addForce(local +Z, fixed 0.01 N, one-shot ONLY) -> Dynamic (E-17).
 The other channels (FY/FZ, TX/TY/TZ, wheel, suspension, thermal) are observed
 but NEVER injected. No verified adapters exist for them in this build. No
 fabricated AC telemetry is used; optional wheel AC signals stay absent if CSP
@@ -47,14 +54,38 @@ not proof of a measured AC response.
 
 Safety: stale sequence/age, missing input, validation errors, non-finite body
 and wheel output, target limit (150 N), hard overflow (600 N), module/API
-errors and emergency latch stop the next call. Values above 150 N and up to
-600 N are clamped; above 600 N faults. Recovery requires explicit reset and
-new TEST. Previous physics-tick impulses cannot be undone retroactively.
+errors and emergency latch stop the next call. The computed FX is only
+validated and observed; it is NOT applied at 10% or at full magnitude.
+Recovery requires explicit reset and new TEST. Previous physics-tick impulses
+cannot be undone retroactively.
 
 Known block to Production Gate: the sandbox has no running Assetto Corsa/CSP
 and cannot perform a genuine A/B/C on-car comparison, verify app/physics
 bridge, or certify torque/wheel/suspension/thermal AC adapters. The E-17 gate
 must remain PENDING_REAL_AC_EVIDENCE. Do not represent mock tests as proof.
+
+State-machine diagnosis: Arm only invokes armTest(). Emergency occurs only
+from an explicit emergency call or car_physics/script.lua reset() after
+initialization. DEFAULT_OFF occurs only in a new Controller.create(), not
+from Enable (which rejects). The app UI renders all buttons then processes at
+most ONE event, prioritizing emergency. UI now redraws the latest transition
+in the SAME frame. Controller event log stores old -> new -> event origin.
+
+Bridge: Send/command_bridge.lua defaults to NO_TRANSPORT in BOTH script
+contexts. An App button attempt CANNOT reach the car script. A test-only
+transport interface can prove command contract with a mock; this is NOT a
+verified CSP cross-context channel. Remote ARM is disabled by default even
+with a transport. Physics-script telemetry is not automatically present in
+the App Observer. Compare BOTH contexts via their separate diagnostics.
+
+For same-session observational comparison: set trace label NORMAL, collect
+samples, then label ARM_ATTEMPT and collect samples without restarting the
+session. Inspect script.detoxDiagnostics().samples on the relevant instance;
+compare instance ID, frame, speed, speed-derived acceleration, pedal inputs,
+FX/FY/FZ, controller transitions, bridge sent/received/accepted and addForce
+calls. A new instance ID or a CREATE transition identifies a reload; do NOT
+interpret the old App view as car-physics telemetry. Do not infer causation
+from subjective feel or unpaired races.
 
 No physics formula changes. Core/input.lua reads optional extra AC telemetry;
 other pre-existing Core/Engine/Model/Definition physics equations are intact.
