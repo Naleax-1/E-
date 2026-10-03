@@ -1,5 +1,5 @@
--- Diagnostic contract only: NO cross-context CSP transport is bundled.
--- A transport must be independently validated on the installed CSP version.
+-- Diagnostic contract. CSP WorkerChannel is opt-in and ACTIVE only after
+-- worker heartbeat; the legacy mock transport is never proof of AC success.
 local B = {}
 local Controller = require("Send.injection_controller")
 function B.create(role, transport)
@@ -11,7 +11,9 @@ function B.send(self, command)
   self.sent=self.sent+1
   self.lastCommand=command
   if not self.transport or self.transport.verified~=true or type(self.transport.send)~="function" then
-    self.status="NO_TRANSPORT";self.lastReason="NO_CROSS_CONTEXT_TRANSPORT";return false,self.lastReason
+    self.status=self.transport and self.transport.status or "NO_TRANSPORT"
+    self.lastReason=self.transport and "WORKER_NOT_READY" or "NO_CROSS_CONTEXT_TRANSPORT"
+    return false,self.lastReason
   end
   local ok,result=pcall(self.transport.send,self.transport,{version=1,sequence=self.sent,command=command})
   if not ok or result~=true then
@@ -52,8 +54,23 @@ function B.poll(self, controller)
   return false,self.lastReason
 end
 function B.getObserverData(self)
-  return {role=self.role,status=self.status,sent=self.sent,received=self.received,
-    accepted=self.accepted,lastCommand=self.lastCommand,lastReason=self.lastReason,
+  local details=self.transport and type(self.transport.getStatus)=="function"
+    and self.transport:getStatus() or nil
+  local ack=details and details.sentSeq>0 and details.ackSeq==details.sentSeq
+  return {role=self.role,status=details and details.status or self.status,
+    ack=ack==true,
+    sent=self.sent,received=details and details.received or self.received,
+    accepted=details and details.accepted or self.accepted,
+    ackSeq=details and details.ackSeq or 0,
+    sentSeq=details and details.sentSeq or 0,
+    physicsContext=details and details.physicsContext or "NONE",
+    workerStatus=details and details.workerStatus or "NONE",
+    addForceCalls=details and details.calls or 0,
+    requestedFX=details and details.requestedFX or 0,
+    preAddForceZ=details and details.preAddForceZ or 0,
+    appliedFX=details and details.appliedFX or 0,
+    outputValid=details and details.outputValid or false,
+    lastCommand=self.lastCommand,lastReason=self.lastReason,
     allowRemoteArm=self.allowRemoteArm}
 end
 return B

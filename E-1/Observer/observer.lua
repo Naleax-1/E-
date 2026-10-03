@@ -187,6 +187,22 @@ local function drawOutputVerification()
   ui.text("Bridge "..tostring(bridge.status or "NO_TRANSPORT").." Send attempts "..tostring(bridge.sent or 0)..
     " Physics received "..tostring(bridge.received or 0).." accepted "..tostring(bridge.accepted or 0))
   ui.text("Bridge command "..tostring(bridge.lastCommand or "NONE").." Reason "..tostring(bridge.lastReason or "UNKNOWN"))
+  ui.text("=== DAY 2 SIX STAGE EVIDENCE (WORKER, NOT MOCK) ===")
+  local latestAck=bridge.ack==true and bridge.sentSeq and bridge.sentSeq>0
+  local armed=bridge.workerStatus=="ARMED" or bridge.workerStatus=="ADD_FORCE_RETURNED"
+  ui.text("APP COMMAND "..yes(bridge.sentSeq and bridge.sentSeq>0)..
+    " ("..tostring(bridge.lastCommand or "NONE")..")  TRANSPORT "..tostring(bridge.status or "NO_TRANSPORT"))
+  ui.text("PHYSICS RECEIVED "..yes(latestAck and bridge.received and bridge.received>0)..
+    "  ACK "..yes(latestAck).." Seq "..tostring(bridge.ackSeq or 0)..
+    " / "..tostring(bridge.sentSeq or 0))
+  ui.text("PHYSICS CONTEXT "..tostring(bridge.physicsContext or "NONE")..
+    "  Worker "..tostring(bridge.workerStatus or "NONE"))
+  ui.text("SAFETY ACCEPT "..yes(latestAck and armed and bridge.outputValid)..
+    "  addForce EXECUTION "..yes(latestAck and bridge.workerStatus=="ADD_FORCE_RETURNED")..
+    "  CALLS "..tostring(bridge.addForceCalls or 0))
+  ui.text(string.format("REQUESTED FX %.4f  PRE-API local Z %.4f  APPLIED FX %.4f",
+    num(bridge.requestedFX),num(bridge.preAddForceZ),num(bridge.appliedFX)))
+  ui.text("VEHICLE RESPONSE NOT PROVEN (0.01 N diagnostic only)")
   ui.text("Adapter safety accepted "..tostring(adapter.accepted or 0).." addForce skipped "..
     tostring(adapter.skipped or 0).." requested "..tostring(adapter.request or 0)..
     " Reason "..tostring(adapter.reason or "DEFAULT_OFF"))

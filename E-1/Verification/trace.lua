@@ -22,6 +22,8 @@ function T.capture(self,state,output,controller,bridge)
   self.lastSpeed=finite(speed) and speed or nil
   self.lastTime=finite(time) and time or nil
   self.count=self.count+1
+  local worker=bridge and bridge.getObserverData and bridge.getObserverData(bridge) or {}
+  local calls=worker.addForceCalls and worker.addForceCalls>0 and worker.addForceCalls or controller.calls
   local row={id=self.count,frame=state and state.frame or 0,time=time,
     context=self.context,instance=self.instance,label=self.label,
     speed=speed,acceleration=acceleration,gas=input.gas,brake=input.brake,steer=input.steer,
@@ -29,9 +31,9 @@ function T.capture(self,state,output,controller,bridge)
     injection=controller.mode,safety=controller.safety,reason=controller.reason,
     requested=controller.requested,applied=controller.applied,
     adapterCalls=controller.calls,controllerEvent=controller.lastEvent and controller.lastEvent.event or "NONE",
-    bridgeStatus=bridge.status,physicsReceived=bridge.received,
-    physicsAccepted=bridge.accepted,physicsApplied=controller.enabledInPhysics and controller.calls or 0,
-    addForceCalls=controller.calls}
+    bridgeStatus=worker.status or bridge.status,physicsReceived=worker.received or bridge.received,
+    physicsAccepted=worker.accepted or bridge.accepted,physicsApplied=worker.appliedFX or controller.applied,
+    addForceCalls=calls,workerStatus=worker.workerStatus or "NONE",ack=worker.ack or false}
   self.last=row
   self.rows[#self.rows+1]=row
   if #self.rows>600 then table.remove(self.rows,1) end

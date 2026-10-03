@@ -34,6 +34,7 @@ local InjectionController=require("Send.injection_controller")
 local Dynamic=require("Verification.dynamic")
 local Trace=require("Verification.trace")
 local Bridge=require("Send.command_bridge")
+local WorkerChannel=require("Send.worker_channel")
 
 local app={initialized=false,error=nil}
 
@@ -70,6 +71,13 @@ local function initialize()
   app.context=app.injection.enabledInPhysics and "CAR_PHYSICS" or "APP_READ_ONLY"
   app.instance=tostring(app)
   app.bridge=Bridge.create(app.context)
+  if not app.injection.enabledInPhysics then
+    app.channel=WorkerChannel.create()
+    local ok,started=pcall(WorkerChannel.start,app.channel)
+    if not ok then app.channel.status="WORKER_SETUP_FAILED" end
+    if ok and started then app.bridge.transport=app.channel end
+    app.bridge.status=app.channel.status
+  end
   app.trace=Trace.create(app.context,app.instance)
   app.verification=Dynamic.create()
   Observer.init()
@@ -126,6 +134,11 @@ function script.update(dt)
     Validation.validate(app.state)
     State.commit(app.state)
     PhysicsOutput.update(app.physicsOutput,app.state)
+    if app.channel then
+      WorkerChannel.publish(app.channel,app.physicsOutput,app.state,app.injection.gate)
+      WorkerChannel.refresh(app.channel,dt)
+      app.bridge.status=app.channel.status
+    end
     if app.injection.enabledInPhysics then Bridge.poll(app.bridge,app.injection) end
     InjectionController.update(app.injection,app.physicsOutput,app.state)
     app.physicsOutput.injection=app.injection.mode
@@ -166,6 +179,10 @@ function script.update(dt)
   if not ok then
     app.error=tostring(err)
     PhysicsOutput.invalidate(app.physicsOutput,app.error)
+    if app.channel and app.channel.shared then
+      app.channel.shared.emergency=1;app.channel.shared.disabled=1
+      app.channel.shared.outputValid=0
+    end
     InjectionController.faultOff(app.injection,"MODULE_ERROR: "..app.error)
     app.state.current.diagnostics.valid=false
     app.state.current.diagnostics.errors=(app.state.current.diagnostics.errors or 0)+1
@@ -182,24 +199,42 @@ end
 -- Commands are explicit; no automatic fault reset or injection on startup.
 function script.detoxArmTest()
   if not app.initialized then return false,"NOT_INITIALIZED" end
-  if not app.injection.enabledInPhysics then Bridge.send(app.bridge,"ARM_FX_TEST") end
+  if not app.injection.enabledInPhysics then
+    local sent,reason=Bridge.send(app.bridge,"ARM_FX_TEST")
+    if not sent then InjectionController.armTest(app.injection,"LOCAL_ARM_BUTTON") end
+    return sent,reason
+  end
   return InjectionController.armTest(app.injection,"LOCAL_ARM_BUTTON")
 end
 function script.detoxEnableFX() return app.initialized and InjectionController.enable(app.injection) end
-function script.detoxDisable() return app.initialized and InjectionController.disable(app.injection) end
+function script.detoxDisable()
+  if not app.initialized then return false end
+  if app.channel and app.channel.shared then
+    app.channel.shared.disabled=1
+    Bridge.send(app.bridge,"DISABLE")
+  end
+  return InjectionController.disable(app.injection)
+end
 function script.detoxEmergencyDisable(origin)
-  return app.initialized and InjectionController.emergencyDisable(app.injection,origin)
+  if not app.initialized then return false end
+  if app.channel and app.channel.shared then
+    app.channel.shared.emergency=1;app.channel.shared.disabled=1
+    Bridge.send(app.bridge,"EMERGENCY")
+  end
+  return InjectionController.emergencyDisable(app.injection,origin)
 end
 function script.detoxRequestMicroPulse()
-  return app.initialized and InjectionController.requestMicroPulse(app.injection)
+  if not app.initialized then return false,"NOT_INITIALIZED" end
+  if app.channel then
+    local details=WorkerChannel.getStatus(app.channel)
+    if not details or not app.channel.verified or details.workerStatus~="ARMED"
+      or details.ackSeq~=details.sentSeq then return false,"ARM_ACK_REQUIRED" end
+    return Bridge.send(app.bridge,"PULSE")
+  end
+  return InjectionController.requestMicroPulse(app.injection)
 end
 function script.detoxSendPing()
   return app.initialized and Bridge.send(app.bridge,"PING")
-end
-function script.detoxAttachDiagnosticTransport(transport)
-  if not app.initialized or not transport or transport.verified~=true then return false,"UNVERIFIED_TRANSPORT" end
-  app.bridge.transport=transport;app.bridge.status="TRANSPORT_ATTACHED_UNPROVEN_ON_CSP"
-  return true
 end
 function script.detoxTraceLabel(label)
   return app.initialized and Trace.setLabel(app.trace,label)
@@ -211,7 +246,11 @@ function script.detoxDiagnostics()
     samples=Trace.getRows(app.trace)}
 end
 function script.detoxResetFault() return app.initialized and InjectionController.resetFault(app.injection) end
-function script.detoxClearEmergency() return app.initialized and InjectionController.clearEmergency(app.injection) end
+function script.detoxClearEmergency()
+  if not app.initialized then return false end
+  if app.channel then WorkerChannel.clearEmergency(app.channel) end
+  return InjectionController.clearEmergency(app.injection)
+end
 function script.detoxSetConditions(conditions)
   return app.initialized and Dynamic.setConditions(app.verification,conditions)
 end
@@ -234,12 +273,14 @@ function script.windowMain()
       local reset=ui.button("Reset Fault to SAFE")
       local clear=ui.button("Clear Emergency Latch")
       local arm=ui.button("Arm FX TEST (dry run)")
+      local pulse=ui.button("Single 0.01 N pulse (ACK required)")
       local enable=ui.button("Enable FX (LOCKED)")
       if emergency then script.detoxEmergencyDisable("APP_UI_EMERGENCY_BUTTON")
       elseif disable then script.detoxDisable()
       elseif reset then script.detoxResetFault()
       elseif clear then script.detoxClearEmergency()
       elseif arm then script.detoxArmTest()
+      elseif pulse then script.detoxRequestMicroPulse()
       elseif enable then script.detoxEnableFX() end
       -- Render the button response in this same UI frame, not one tick late.
       Observer.update(0,app.state.current,app.input)
