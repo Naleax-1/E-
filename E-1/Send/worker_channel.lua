@@ -6,8 +6,16 @@ T.CODE={PING=1,ARM_FX_TEST=2,PULSE=3,DISABLE=4,EMERGENCY=5}
 T.STATUS={[0]="WAITING",[1]="READY",[2]="PING_ACK",[3]="ARMED",
   [4]="ADD_FORCE_RETURNED",[5]="FAULT",[6]="EMERGENCY",[7]="STALE",
   [8]="DISABLED",[9]="REJECTED"}
+T.API_STAGE={[0]="NOT_REACHED",[1]="VALUE_PREPARED",
+  [2]="API_AVAILABLE",[3]="CALL_ATTEMPTED",[4]="CALL_RETURNED"}
+T.FAULT={[0]="NONE",[1]="SESSION_MISMATCH",[2]="OUTPUT_INVALID",
+  [3]="OUTPUT_SEQUENCE_INVALID",[4]="OUTPUT_NON_FINITE",[5]="OUTPUT_OVERFLOW",
+  [6]="HEARTBEAT_TIMEOUT",[7]="PULSE_NOT_ARMED",[8]="PULSE_DISABLED",
+  [9]="PHYSICS_API_UNAVAILABLE",[10]="VECTOR_API_UNAVAILABLE",
+  [11]="API_CALL_FAILED",[12]="EMERGENCY",[13]="UNKNOWN_COMMAND",
+  [14]="VECTOR_CONSTRUCTION_FAILED"}
 function T.layout()
-  return {key=ac.StructItem.key('DETOX.PhysicsWorker.Day2.v1'),
+  return {key=ac.StructItem.key('DETOX.PhysicsWorker.Day2.v2'),
     session=ac.StructItem.int32(),heartbeat=ac.StructItem.int32(),
     outputSeq=ac.StructItem.int32(),outputValid=ac.StructItem.int32(),
     outputFX=ac.StructItem.double(),commandSeq=ac.StructItem.int32(),
@@ -17,7 +25,11 @@ function T.layout()
     received=ac.StructItem.int32(),accepted=ac.StructItem.int32(),
     status=ac.StructItem.int32(),addForceCalls=ac.StructItem.int32(),
     requestedFX=ac.StructItem.double(),preAddForceZ=ac.StructItem.double(),
-    appliedFX=ac.StructItem.double()}
+    appliedFX=ac.StructItem.double(),lastCommand=ac.StructItem.int32(),
+    lastCommandSeq=ac.StructItem.int32(),stateBefore=ac.StructItem.int32(),
+    stateAfter=ac.StructItem.int32(),faultReason=ac.StructItem.int32(),
+    faultDetail=ac.StructItem.string(128),validationResult=ac.StructItem.int32(),
+    safetyResult=ac.StructItem.int32(),apiStage=ac.StructItem.int32()}
 end
 local function finite(v)
   return type(v)=="number" and v==v and v~=math.huge and v~=-math.huge
@@ -42,6 +54,10 @@ function T.start(self)
   shared.received=0;shared.accepted=0;shared.status=0
   shared.addForceCalls=0;shared.requestedFX=0
   shared.preAddForceZ=0;shared.appliedFX=0
+  shared.lastCommand=0;shared.lastCommandSeq=0
+  shared.stateBefore=0;shared.stateAfter=0;shared.faultReason=0
+  shared.faultDetail="";shared.validationResult=0;shared.safetyResult=0
+  shared.apiStage=0
   local started,err=pcall(physics.startPhysicsWorker,'DetoxPhysicsWorker',self.session,
     function(reason) self.status="WORKER_STOPPED: "..tostring(reason);self.verified=false end)
   if not started or err==false then self.status="WORKER_START_FAILED";return false,tostring(err) end
@@ -99,6 +115,13 @@ function T.getStatus(self)
     received=s.received,accepted=s.accepted,ackSeq=s.ackSeq,sentSeq=self.commandSeq,
     workerStatus=T.STATUS[s.status] or "UNKNOWN",calls=s.addForceCalls,
     requestedFX=s.requestedFX,preAddForceZ=s.preAddForceZ,appliedFX=s.appliedFX,
-    emergency=s.emergency==1,outputSeq=s.outputSeq,outputValid=s.outputValid==1}
+    emergency=s.emergency==1,outputSeq=s.outputSeq,outputValid=s.outputValid==1,
+    lastCommand=s.lastCommand,lastCommandSeq=s.lastCommandSeq,
+    stateBefore=T.STATUS[s.stateBefore] or "UNKNOWN",
+    stateAfter=T.STATUS[s.stateAfter] or "UNKNOWN",
+    faultReason=T.FAULT[s.faultReason] or "UNKNOWN",
+    faultDetail=tostring(s.faultDetail or ''),validationResult=s.validationResult==1,
+    safetyResult=s.safetyResult==1,
+    apiStage=T.API_STAGE[s.apiStage] or "UNKNOWN"}
 end
 return T

@@ -70,6 +70,15 @@ function B.getObserverData(self)
     preAddForceZ=details and details.preAddForceZ or 0,
     appliedFX=details and details.appliedFX or 0,
     outputValid=details and details.outputValid or false,
+    workerLastCommand=details and details.lastCommand or 0,
+    workerCommandSeq=details and details.lastCommandSeq or 0,
+    workerStateBefore=details and details.stateBefore or "NONE",
+    workerStateAfter=details and details.stateAfter or "NONE",
+    faultReason=details and details.faultReason or "UNKNOWN",
+    faultDetail=details and details.faultDetail or "",
+    validationResult=details and details.validationResult or false,
+    safetyResult=details and details.safetyResult or false,
+    apiStage=details and details.apiStage or "NOT_REACHED",
     lastCommand=self.lastCommand,lastReason=self.lastReason,
     allowRemoteArm=self.allowRemoteArm}
 end
