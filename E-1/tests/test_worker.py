@@ -9,7 +9,8 @@ script={};ui={text=function()end,separator=function()end}
 local shared={}
 ac={getCar=function()return {speedKmh=0,rpm=900,gear=1,gas=0,brake=0,
   steer=0,clutch=1,handbrake=0}end}
-ac.StructItem={key=function()return {}end,int32=function()return {}end,double=function()return {}end}
+ac.StructItem={key=function()return {}end,int32=function()return {}end,
+  double=function()return {}end,string=function()return {}end}
 ac.connect=function(layout)assert(layout.session and layout.commandSeq);return shared end
 local calls={}
 physics={startPhysicsWorker=function(name,key,callback)
@@ -60,8 +61,38 @@ assert(appScript.detoxRequestMicroPulse())
 shared.outputValid=0 -- invalidated between App publication and worker pulse
 script=workerScript;workerScript.update(.003)
 assert(#calls==1 and shared.status==5 and shared.disabled==1)
+assert(shared.faultReason==2 and shared.stateBefore==3 and shared.stateAfter==5)
+assert(shared.apiStage==0 and shared.preAddForceZ==0)
 script=appScript;appScript.update(.01)
 assert(appScript.detoxArmTest())
+script=workerScript;workerScript.update(.003)
+script=appScript;appScript.update(.01)
+assert(appScript.detoxRequestMicroPulse())
+physics.addForce=nil -- the CSP version/API availability case
+script=workerScript;workerScript.update(.003)
+assert(shared.status==5 and shared.faultReason==9 and shared.apiStage==1)
+assert(shared.preAddForceZ==.01 and shared.addForceCalls==1)
+script=appScript;appScript.update(.01)
+assert(appScript.detoxArmTest())
+script=workerScript;workerScript.update(.003)
+script=appScript;appScript.update(.01)
+assert(appScript.detoxRequestMicroPulse())
+physics.addForce=function()error('mock native call failure')end
+script=workerScript;workerScript.update(.003)
+assert(shared.status==5 and shared.faultReason==11 and shared.apiStage==3)
+assert(shared.faultDetail:find('mock native call failure',1,true))
+assert(shared.addForceCalls==1)
+script=appScript;appScript.update(.01)
+assert(appScript.detoxArmTest())
+script=workerScript;workerScript.update(.003)
+script=appScript;appScript.update(.01)
+assert(appScript.detoxRequestMicroPulse())
+vec3=function()error('mock vector construction failure')end
+script=workerScript;workerScript.update(.003)
+assert(shared.status==5 and shared.faultReason==14 and shared.apiStage==2)
+assert(shared.faultDetail:find('mock vector construction failure',1,true))
+assert(shared.addForceCalls==1)
+script=appScript;assert(appScript.detoxArmTest())
 assert(appScript.detoxEmergencyDisable('TEST_EMERGENCY'))
 script=workerScript;workerScript.update(.003)
 assert(#calls==1 and shared.status==6 and shared.emergency==1)

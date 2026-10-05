@@ -197,6 +197,17 @@ local function drawOutputVerification()
     " / "..tostring(bridge.sentSeq or 0))
   ui.text("PHYSICS CONTEXT "..tostring(bridge.physicsContext or "NONE")..
     "  Worker "..tostring(bridge.workerStatus or "NONE"))
+  ui.text("WORKER COMMAND "..tostring(bridge.workerLastCommand or 0)..
+    " Seq "..tostring(bridge.workerCommandSeq or 0)..
+    "  "..tostring(bridge.workerStateBefore or "NONE").." -> "..
+    tostring(bridge.workerStateAfter or "NONE"))
+  ui.text("WORKER VALIDATION "..yes(bridge.validationResult)..
+    "  WORKER SAFETY "..yes(bridge.safetyResult)..
+    "  API STAGE "..tostring(bridge.apiStage or "NOT_REACHED"))
+  ui.text("WORKER FAULT REASON "..tostring(bridge.faultReason or "UNKNOWN"))
+  if bridge.faultDetail and bridge.faultDetail~="" then
+    ui.text("WORKER FAULT DETAIL "..tostring(bridge.faultDetail))
+  end
   ui.text("SAFETY ACCEPT "..yes(latestAck and armed and bridge.outputValid)..
     "  addForce EXECUTION "..yes(latestAck and bridge.workerStatus=="ADD_FORCE_RETURNED")..
     "  CALLS "..tostring(bridge.addForceCalls or 0))
